@@ -1,11 +1,12 @@
-// js/main.js - Punto de entrada de la aplicación (Actualizado Fase 1.2)
+// js/main.js - Punto de entrada de la aplicación (Actualizado Fase 1.2 + Modal Contactos)
 
 import { APP_CONFIG, DEVELOPER_PIN } from './config.js';
 import { initDatabase, getIdentity, saveIdentity } from './core/storage.js';
 import { generateNewIdentity } from './core/identity.js';
-import { addOrUpdateContact, getAllContacts } from './services/contacts.js';
+import { addOrUpdateContact } from './services/contacts.js';
 import { renderChatList } from './ui/chat_list.js';
 import { openChatWindow, handleSendMessage } from './ui/chat_window.js';
+import { openContactsModal } from './ui/contacts_modal.js';
 
 /**
  * Muestra un toast de notificación
@@ -86,16 +87,14 @@ function setupEventListeners() {
         }
     });
 
-    // Botón Contactos (Muestra lista en consola por ahora)
+    // Botón Contactos (Abre el modal visual de contactos)
     document.getElementById('btn-contacts')?.addEventListener('click', async () => {
-        const contacts = await getAllContacts();
-        console.table(contacts);
-        showToast(`Tienes ${contacts.length} contactos guardados`, 'info');
+        await openContactsModal();
     });
 
     // Botón Ajustes (placeholder)
     document.getElementById('btn-settings')?.addEventListener('click', () => {
-        showToast('Ajustes - Próximamente en Fase 1.2', 'info');
+        showToast('Ajustes - Próximamente en Fase 1.3', 'info');
     });
 
     // Enviar mensaje con botón
@@ -112,6 +111,12 @@ function setupEventListeners() {
     // Escuchar actualizaciones de chat para refrescar la lista lateral
     window.addEventListener('chat-updated', async () => {
         await renderChatList(openChatWindow);
+    });
+
+    // Escuchar evento para abrir chat desde el modal de contactos
+    window.addEventListener('open-chat', (e) => {
+        const { pin, alias } = e.detail;
+        openChatWindow(pin, alias);
     });
 }
 

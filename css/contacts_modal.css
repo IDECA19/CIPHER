@@ -1,0 +1,155 @@
+/* css/contacts_modal.css - Estilos para el modal de contactos */
+
+.contacts-list {
+    max-height: 60vh;
+    overflow-y: auto;
+    margin: var(--spacing-md) 0;
+}
+
+.contacts-loading {
+    text-align: center;
+    padding: var(--spacing-xl);
+    color: var(--text-secondary);
+}
+
+.contacts-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: var(--spacing-xl);
+    text-align: center;
+    color: var(--text-secondary);
+    gap: var(--spacing-sm);
+    min-height: 200px;
+}
+
+.contacts-empty__icon {
+    font-size: 3rem;
+    opacity: 0.5;
+}
+
+.contacts-empty__text {
+    font-size: 1.1rem;
+    color: var(--text-primary);
+}
+
+.contacts-empty__hint {
+    font-size: 0.875rem;
+}
+
+.contact-item {
+    display: flex;
+    align-items: center;
+    padding: var(--spacing-md);
+    gap: var(--spacing-md);
+    border-bottom: 1px solid var(--border-color);
+    transition: background var(--transition-fast);
+}
+
+.contact-item:hover {
+    background: var(--bg-hover);
+}
+
+.contact-item:last-child {
+    border-bottom: none;
+}
+
+.contact-item__avatar {
+    width: 48px;
+    height: 48px;
+    border-radius: var(--radius-full);
+    background: var(--accent-secondary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-primary);
+    font-weight: 600;
+    font-size: 1.1rem;
+    flex-shrink: 0;
+}
+
+.contact-item__info {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.contact-item__header {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+}
+
+.contact-item__name {
+    font-weight: 500;
+    color: var(--text-primary);
+    font-size: 1rem;
+}
+
+.contact-item__pin {
+    font-family: "Courier New", monospace;
+    font-size: 0.8rem;
+    color: var(--accent-primary);
+    letter-spacing: 0.5px;
+}
+
+.contact-item__date {
+    font-size: 0.75rem;
+    color: var(--text-tertiary);
+}
+
+.contact-item__actions {
+    display: flex;
+    gap: var(--spacing-xs);
+    flex-shrink: 0;
+}
+
+.btn-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: var(--radius-full);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.1rem;
+    transition: background var(--transition-fast);
+    background: var(--bg-tertiary);
+}
+
+.btn-icon:hover {
+    background: var(--bg-hover);
+}
+
+.btn-icon--danger:hover {
+    background: var(--danger);
+    color: var(--text-inverse);
+}
+
+.modal__footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--spacing-sm);
+    margin-top: var(--spacing-md);
+    padding-top: var(--spacing-md);
+    border-top: 1px solid var(--border-color);
+}
+
+.modal__close {
+    width: 32px;
+    height: 32px;
+    border-radius: var(--radius-full);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.2rem;
+    transition: background var(--transition-fast);
+    color: var(--text-secondary);
+}
+
+.modal__close:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
