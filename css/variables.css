@@ -1,0 +1,63 @@
+/* css/variables.css - Paleta de colores tipo WhatsApp (modo oscuro) */
+
+:root {
+    /* Colores principales - Tema oscuro */
+    --bg-primary: #0b141a;
+    --bg-secondary: #111b21;
+    --bg-tertiary: #202c33;
+    --bg-hover: #2a3942;
+    
+    /* Colores de acento */
+    --accent-primary: #00a884;
+    --accent-hover: #06cf9c;
+    --accent-secondary: #008069;
+    
+    /* Colores de texto */
+    --text-primary: #e9edef;
+    --text-secondary: #8696a0;
+    --text-tertiary: #667781;
+    --text-inverse: #0b141a;
+    
+    /* Bordes */
+    --border-color: #2a3942;
+    --border-light: #3b4a54;
+    
+    /* Burbujas de mensaje */
+    --bubble-sent: #005c4b;
+    --bubble-received: #202c33;
+    --bubble-text: #e9edef;
+    
+    /* Estados */
+    --success: #00a884;
+    --warning: #f5a623;
+    --danger: #f15c6d;
+    --info: #53bdeb;
+    
+    /* Sombras */
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.2);
+    --shadow-md: 0 4px 8px rgba(0, 0, 0, 0.3);
+    --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.4);
+    
+    /* Espaciado */
+    --spacing-xs: 4px;
+    --spacing-sm: 8px;
+    --spacing-md: 16px;
+    --spacing-lg: 24px;
+    --spacing-xl: 32px;
+    
+    /* Bordes redondeados */
+    --radius-sm: 4px;
+    --radius-md: 8px;
+    --radius-lg: 12px;
+    --radius-full: 9999px;
+    
+    /* Transiciones */
+    --transition-fast: 150ms ease;
+    --transition-normal: 250ms ease;
+    
+    /* Z-index */
+    --z-base: 1;
+    --z-dropdown: 100;
+    --z-modal: 1000;
+    --z-toast: 2000;
+}
