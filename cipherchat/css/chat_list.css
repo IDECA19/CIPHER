@@ -1,0 +1,122 @@
+/* css/chat_list.css - Estilos para la lista de chats */
+
+.chat-list {
+    flex: 1;
+    overflow-y: auto;
+    background: var(--bg-secondary);
+}
+
+.chat-item {
+    display: flex;
+    align-items: center;
+    padding: var(--spacing-sm) var(--spacing-md);
+    gap: var(--spacing-md);
+    cursor: pointer;
+    border-bottom: 1px solid var(--border-color);
+    transition: background var(--transition-fast);
+}
+
+.chat-item:hover {
+    background: var(--bg-hover);
+}
+
+.chat-item.active {
+    background: var(--bg-tertiary);
+}
+
+.chat-item__avatar {
+    width: 48px;
+    height: 48px;
+    border-radius: var(--radius-full);
+    background: var(--accent-secondary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-primary);
+    font-weight: 600;
+    font-size: 1.1rem;
+    flex-shrink: 0;
+}
+
+.chat-item__content {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.chat-item__header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+}
+
+.chat-item__name {
+    font-weight: 500;
+    color: var(--text-primary);
+    font-size: 1rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.chat-item__time {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    flex-shrink: 0;
+    margin-left: var(--spacing-sm);
+}
+
+.chat-item__preview {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.chat-item__last-message {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+}
+
+.chat-item__badge {
+    background: var(--accent-primary);
+    color: var(--text-inverse);
+    border-radius: var(--radius-full);
+    padding: 2px 8px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    margin-left: var(--spacing-sm);
+}
+
+/* Estado vacío */
+.empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: var(--spacing-xl);
+    text-align: center;
+    color: var(--text-secondary);
+    gap: var(--spacing-sm);
+    min-height: 300px;
+}
+
+.empty-state__icon {
+    font-size: 3rem;
+    opacity: 0.5;
+}
+
+.empty-state__title {
+    font-size: 1.1rem;
+    color: var(--text-primary);
+    font-weight: 500;
+}
+
+.empty-state__text {
+    font-size: 0.875rem;
+}
