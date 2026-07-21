@@ -1,4 +1,4 @@
-// js/main.js - Punto de entrada de la aplicación (Actualizado Fase 1.2 + Modal Contactos)
+// js/main.js - Punto de entrada de la aplicación (Actualizado Fase 1.3 + P2P)
 
 import { APP_CONFIG, DEVELOPER_PIN } from './config.js';
 import { initDatabase, getIdentity, saveIdentity } from './core/storage.js';
@@ -7,6 +7,8 @@ import { addOrUpdateContact } from './services/contacts.js';
 import { renderChatList } from './ui/chat_list.js';
 import { openChatWindow, handleSendMessage } from './ui/chat_window.js';
 import { openContactsModal } from './ui/contacts_modal.js';
+import { initP2PNetwork, registerMessageHandler } from './network/p2p.js';
+import { receiveP2PMessage } from './services/messaging.js';
 
 /**
  * Muestra un toast de notificación
@@ -94,7 +96,7 @@ function setupEventListeners() {
 
     // Botón Ajustes (placeholder)
     document.getElementById('btn-settings')?.addEventListener('click', () => {
-        showToast('Ajustes - Próximamente en Fase 1.3', 'info');
+        showToast('Ajustes - Próximamente en Fase 2', 'info');
     });
 
     // Enviar mensaje con botón
@@ -160,7 +162,21 @@ async function initApp() {
         updateSplashStatus('Cargando chats...');
         await renderChatList(openChatWindow);
         
-        // Paso 6: Mostrar la app
+        // Paso 6: Inicializar red P2P
+        updateSplashStatus('Conectando a la red P2P...');
+        try {
+            await initP2PNetwork();
+            
+            // Registrar handler para mensajes entrantes
+            registerMessageHandler(identity.pin, receiveP2PMessage);
+            
+            showToast('Conectado a la red P2P', 'success');
+        } catch (error) {
+            console.warn('⚠️ Red P2P no disponible (modo offline):', error.message);
+            showToast('Modo offline: mensajes se guardan localmente', 'warning');
+        }
+        
+        // Paso 7: Mostrar la app
         setTimeout(() => {
             showApp();
             showToast('CipherChat listo para usar', 'success');

@@ -80,26 +80,27 @@ export async function handleSendMessage() {
     
     if (!text) return;
     
-    // 1. Guardar mensaje como "enviado" localmente
-    await saveMessage(currentChatId, text, true);
+    // Obtener PIN del remitente
+    const { getIdentity } = await import('../core/storage.js');
+    const identity = await getIdentity();
+    
+    // 1. Enviar mensaje (local + P2P)
+    const { sendP2PMessage } = await import('../services/messaging.js');
+    await sendP2PMessage(currentChatId, text, identity.pin);
     
     // 2. Limpiar input
     input.value = '';
-    input.style.height = 'auto'; // Resetear altura
+    input.style.height = 'auto';
     
     // 3. Renderizar el nuevo mensaje
+    const { getChatMessages } = await import('../services/messaging.js');
     const messages = await getChatMessages(currentChatId);
     const newMsg = messages[messages.length - 1];
     appendMessageToDOM(newMsg);
     scrollToBottom();
     
     // 4. Actualizar la lista lateral
-    // Necesitamos importar renderChatList dinámicamente o pasarlo como callback
-    // Para evitar dependencias circulares, lo manejamos en main.js
     window.dispatchEvent(new CustomEvent('chat-updated'));
-    
-    // TODO (Fase 1.3): Aquí irá la llamada a libp2p para enviar el mensaje P2P real
-    // await p2pService.sendMessage(currentChatId, text);
 }
 
 function scrollToBottom() {
@@ -117,4 +118,20 @@ function escapeHtml(text) {
 document.getElementById('message-input')?.addEventListener('input', function() {
     this.style.height = 'auto';
     this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+});
+
+/**
+ * Maneja mensajes recibidos por P2P
+ */
+window.addEventListener('message-received', async (e) => {
+    const { chatId, message } = e.detail;
+    
+    // Si el chat actual está abierto, mostrar el mensaje
+    if (currentChatId === chatId) {
+        appendMessageToDOM(message);
+        scrollToBottom();
+    }
+    
+    // Actualizar lista de chats
+    window.dispatchEvent(new CustomEvent('chat-updated'));
 });

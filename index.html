@@ -14,6 +14,23 @@
     <link rel="stylesheet" href="css/chat_window.css">
     <link rel="stylesheet" href="css/components.css">
     <link rel="stylesheet" href="css/contacts_modal.css">
+
+<!-- Libp2p y dependencias desde CDN -->
+<script type="importmap">
+{
+    "imports": {
+        "libp2p": "https://cdn.jsdelivr.net/npm/libp2p@1.0.0/+esm",
+        "@chainsafe/libp2p-webrtc": "https://cdn.jsdelivr.net/npm/@chainsafe/libp2p-webrtc@1.0.0/+esm",
+        "@libp2p/websockets": "https://cdn.jsdelivr.net/npm/@libp2p/websockets@8.0.0/+esm",
+        "@libp2p/kad-dht": "https://cdn.jsdelivr.net/npm/@libp2p/kad-dht@12.0.0/+esm",
+        "@chainsafe/libp2p-gossipsub": "https://cdn.jsdelivr.net/npm/@chainsafe/libp2p-gossipsub@12.0.0/+esm",
+        "@chainsafe/libp2p-noise": "https://cdn.jsdelivr.net/npm/@chainsafe/libp2p-noise@15.0.0/+esm",
+        "@chainsafe/libp2p-yamux": "https://cdn.jsdelivr.net/npm/@chainsafe/libp2p-yamux@6.0.0/+esm",
+        "@libp2p/bootstrap": "https://cdn.jsdelivr.net/npm/@libp2p/bootstrap@10.0.0/+esm",
+        "@libp2p/identify": "https://cdn.jsdelivr.net/npm/@libp2p/identify@2.0.0/+esm"
+    }
+}
+</script>
 </head>
 <body>
     <!-- Pantalla de carga inicial -->
