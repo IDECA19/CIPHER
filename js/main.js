@@ -127,7 +127,6 @@ async function initApp() {
         setTimeout(() => {
             showApp();
             showToast('CipherChat listo para usar', 'success');
- is ready', 'success');
         }, 500);
         
         console.log("🎉 Aplicación inicializada correctamente");
