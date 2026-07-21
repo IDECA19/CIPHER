@@ -9,7 +9,7 @@ export const APP_CONFIG = {
 
 // PIN del desarrollador (hardcodeado para soporte)
 // Formato tipo BlackBerry: XXX-XXXX-XX
-export const DEVELOPER_PIN = "DEV-7X9K-M2";
+export const DEVELOPER_PIN = "DEV-7X9K-M2P";
 
 // Configuración de la red P2P
 export const NETWORK_CONFIG = {
