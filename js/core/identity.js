@@ -53,7 +53,7 @@ export function derivePinFromPublicKey(publicKeyHex) {
  * @returns {boolean} true si es válido
  */
 export function isValidPinFormat(pin) {
-    // Formato: XXX-XXXX-XX o XXXXXXXXXX
+    // Formato: XXX-XXXX-XXX o XXXXXXXXXX
     const cleanPin = pin.replace(/-/g, '');
     return /^[A-Z0-9]{10}$/.test(cleanPin);
 }
