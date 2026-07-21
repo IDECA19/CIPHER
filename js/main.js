@@ -9,6 +9,8 @@ import { openChatWindow, handleSendMessage } from './ui/chat_window.js';
 
 /**
  * Muestra un toast de notificación
+ * @param {string} message - Mensaje a mostrar
+ * @param {string} type - Tipo de toast ('info', 'success', 'warning', 'error')
  */
 function showToast(message, type = 'info') {
     const container = document.getElementById('toast-container');
@@ -23,16 +25,27 @@ function showToast(message, type = 'info') {
     }, 3000);
 }
 
+/**
+ * Actualiza el estado del splash screen
+ * @param {string} message - Mensaje de estado
+ */
 function updateSplashStatus(message) {
     const status = document.getElementById('splash-status');
     if (status) status.textContent = message;
 }
 
+/**
+ * Oculta el splash y muestra la app
+ */
 function showApp() {
     document.getElementById('splash-screen').classList.add('hidden');
     document.getElementById('app').classList.remove('hidden');
 }
 
+/**
+ * Muestra el PIN del usuario en la UI
+ * @param {string} pinFormatted - PIN formateado
+ */
 function displayUserPin(pinFormatted) {
     document.querySelectorAll('#my-pin, #my-pin-display').forEach(el => {
         if (el) el.textContent = pinFormatted;
@@ -43,12 +56,16 @@ function displayUserPin(pinFormatted) {
  * Configura todos los event listeners de la UI
  */
 function setupEventListeners() {
-    // Copiar PIN
+    // Copiar PIN al portapapeles
     document.getElementById('btn-copy-pin')?.addEventListener('click', async () => {
         const pin = document.getElementById('my-pin-display')?.textContent;
         if (pin && pin !== '---') {
-            await navigator.clipboard.writeText(pin);
-            showToast('PIN copiado al portapapeles', 'success');
+            try {
+                await navigator.clipboard.writeText(pin);
+                showToast('PIN copiado al portapapeles', 'success');
+            } catch (err) {
+                showToast('Error al copiar el PIN', 'error');
+            }
         }
     });
 
@@ -76,6 +93,11 @@ function setupEventListeners() {
         showToast(`Tienes ${contacts.length} contactos guardados`, 'info');
     });
 
+    // Botón Ajustes (placeholder)
+    document.getElementById('btn-settings')?.addEventListener('click', () => {
+        showToast('Ajustes - Próximamente en Fase 1.2', 'info');
+    });
+
     // Enviar mensaje con botón
     document.getElementById('btn-send')?.addEventListener('click', handleSendMessage);
 
@@ -101,13 +123,16 @@ async function initApp() {
     console.log(`📞 PIN del desarrollador: ${DEVELOPER_PIN}`);
     
     try {
+        // Paso 1: Inicializar base de datos
         updateSplashStatus('Inicializando almacenamiento...');
         await initDatabase();
         
+        // Paso 2: Verificar si existe identidad
         updateSplashStatus('Verificando identidad...');
         let identity = await getIdentity();
         
         if (!identity) {
+            // Primera vez: generar nueva identidad
             updateSplashStatus('Generando tu identidad única...');
             identity = await generateNewIdentity();
             await saveIdentity(identity);
@@ -116,14 +141,21 @@ async function initApp() {
             await addOrUpdateContact(DEVELOPER_PIN, "Soporte CipherChat");
             
             showToast(`¡Bienvenido! Tu PIN es: ${identity.pinFormatted}`, 'success');
+        } else {
+            console.log(`✅ Identidad existente: ${identity.pinFormatted}`);
         }
         
+        // Paso 3: Mostrar PIN en la UI
         displayUserPin(identity.pinFormatted);
+        
+        // Paso 4: Configurar event listeners
         setupEventListeners();
         
+        // Paso 5: Cargar lista de chats
         updateSplashStatus('Cargando chats...');
         await renderChatList(openChatWindow);
         
+        // Paso 6: Mostrar la app
         setTimeout(() => {
             showApp();
             showToast('CipherChat listo para usar', 'success');
@@ -138,6 +170,7 @@ async function initApp() {
     }
 }
 
+// Iniciar cuando el DOM esté listo
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', initApp);
 } else {
