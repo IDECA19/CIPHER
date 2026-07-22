@@ -1,4 +1,4 @@
-// js/main.js - Punto de entrada de la aplicación (Fase 1.3 + P2P + Responsive)
+// js/main.js - Punto de entrada de la aplicación (Fase 2.1 + P2P + Archivos)
 
 import { APP_CONFIG, DEVELOPER_PIN } from './config.js';
 import { initDatabase, getIdentity, saveIdentity } from './core/storage.js';
@@ -7,59 +7,38 @@ import { addOrUpdateContact } from './services/contacts.js';
 import { renderChatList } from './ui/chat_list.js';
 import { openChatWindow, handleSendMessage, closeChatWindow } from './ui/chat_window.js';
 import { openContactsModal } from './ui/contacts_modal.js';
-import { initP2PNetwork, registerMessageHandler } from './network/p2p.js';
-import { receiveP2PMessage } from './services/messaging.js';
+import { initP2PNetwork, registerMessageHandler, registerFileChunkHandler } from './network/p2p.js';
+import { receiveP2PMessage, receiveFileChunk, receiveFileMetadata } from './services/messaging.js';
 
-/**
- * Muestra un toast de notificación
- * @param {string} message - Mensaje a mostrar
- * @param {string} type - Tipo de toast ('info', 'success', 'warning', 'error')
- */
 function showToast(message, type = 'info') {
     const container = document.getElementById('toast-container');
     const toast = document.createElement('div');
     toast.className = `toast ${type}`;
     toast.textContent = message;
     container.appendChild(toast);
-    
     setTimeout(() => {
         toast.classList.add('hiding');
         setTimeout(() => toast.remove(), 300);
     }, 3000);
 }
 
-/**
- * Actualiza el estado del splash screen
- * @param {string} message - Mensaje de estado
- */
 function updateSplashStatus(message) {
     const status = document.getElementById('splash-status');
     if (status) status.textContent = message;
 }
 
-/**
- * Oculta el splash y muestra la app
- */
 function showApp() {
     document.getElementById('splash-screen').classList.add('hidden');
     document.getElementById('app').classList.remove('hidden');
 }
 
-/**
- * Muestra el PIN del usuario en la UI
- * @param {string} pinFormatted - PIN formateado
- */
 function displayUserPin(pinFormatted) {
     document.querySelectorAll('#my-pin, #my-pin-display').forEach(el => {
         if (el) el.textContent = pinFormatted;
     });
 }
 
-/**
- * Configura todos los event listeners de la UI
- */
 function setupEventListeners() {
-    // Copiar PIN al portapapeles
     document.getElementById('btn-copy-pin')?.addEventListener('click', async () => {
         const pin = document.getElementById('my-pin-display')?.textContent;
         if (pin && pin !== '---') {
@@ -72,14 +51,11 @@ function setupEventListeners() {
         }
     });
 
-    // Botón Nuevo Chat
     document.getElementById('btn-new-chat')?.addEventListener('click', async () => {
         const pin = prompt("Ingresa el PIN del contacto (ej: ABC-1234-XY):");
         if (!pin) return;
-        
         const alias = prompt("¿Cómo quieres llamar a este contacto? (Alias):");
         if (!alias) return;
-
         try {
             await addOrUpdateContact(pin, alias);
             showToast(`Contacto ${alias} agregado`, 'success');
@@ -89,20 +65,16 @@ function setupEventListeners() {
         }
     });
 
-    // Botón Contactos (Abre el modal visual)
     document.getElementById('btn-contacts')?.addEventListener('click', async () => {
         await openContactsModal();
     });
 
-    // Botón Ajustes (placeholder)
     document.getElementById('btn-settings')?.addEventListener('click', () => {
         showToast('Ajustes - Próximamente en Fase 2', 'info');
     });
 
-    // Enviar mensaje con botón
     document.getElementById('btn-send')?.addEventListener('click', handleSendMessage);
 
-    // Enviar mensaje con Enter (sin Shift)
     document.getElementById('message-input')?.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
@@ -110,93 +82,70 @@ function setupEventListeners() {
         }
     });
 
-    // Escuchar actualizaciones de chat para refrescar la lista lateral
     window.addEventListener('chat-updated', async () => {
         await renderChatList(openChatWindow);
     });
 
-    // Escuchar evento para abrir chat desde el modal de contactos
     window.addEventListener('open-chat', (e) => {
         const { pin, alias } = e.detail;
         openChatWindow(pin, alias);
     });
 
-    // Botón de regreso (solo visible en móvil)
     document.getElementById('btn-back')?.addEventListener('click', () => {
         closeChatWindow();
     });
 }
 
-/**
- * Inicializa la aplicación
- */
 async function initApp() {
     console.log(`🚀 Iniciando ${APP_CONFIG.name} v${APP_CONFIG.version}`);
     console.log(`📞 PIN del desarrollador: ${DEVELOPER_PIN}`);
     
     try {
-        // Paso 1: Inicializar base de datos
         updateSplashStatus('Inicializando almacenamiento...');
         await initDatabase();
         
-        // Paso 2: Verificar identidad
         updateSplashStatus('Verificando identidad...');
         let identity = await getIdentity();
         
         if (!identity) {
-            // Primera vez: generar nueva identidad
             updateSplashStatus('Generando tu identidad única...');
             identity = await generateNewIdentity();
             await saveIdentity(identity);
-            
-            // Agregar al desarrollador como contacto por defecto
             await addOrUpdateContact(DEVELOPER_PIN, "Soporte CipherChat");
-            
             showToast(`¡Bienvenido! Tu PIN es: ${identity.pinFormatted}`, 'success');
         } else {
             console.log(`✅ Identidad existente: ${identity.pinFormatted}`);
         }
         
-        // Paso 3: Mostrar PIN en la UI
         displayUserPin(identity.pinFormatted);
-        
-        // Paso 4: Configurar event listeners
         setupEventListeners();
         
-        // Paso 5: Cargar lista de chats
         updateSplashStatus('Cargando chats...');
         await renderChatList(openChatWindow);
         
-        // Paso 6: Inicializar red P2P
-updateSplashStatus('Conectando a la red P2P...');
-try {
-    await initP2PNetwork();
-    registerMessageHandler(identity.pin, receiveP2PMessage);
-    
-    // Registrar handlers para archivos
-    const { registerFileChunkHandler } = await import('./network/p2p.js');
-    const { receiveFileChunk, receiveFileMetadata } = await import('./services/messaging.js');
-    
-    // Handler especial para metadatos de archivos
-    const originalHandler = receiveP2PMessage;
-    registerMessageHandler(identity.pin, async (data) => {
-        if (data.type === 'file-metadata') {
-            await receiveFileMetadata(data.metadata);
-        } else {
-            await originalHandler(data);
+        // 🚀 PASO 6: Inicializar red P2P y handlers (ESTO FALTABA)
+        updateSplashStatus('Conectando a la red P2P...');
+        try {
+            await initP2PNetwork();
+            
+            // Handler para mensajes de texto y metadatos
+            registerMessageHandler(identity.pin, async (data) => {
+                if (data.type === 'file-metadata') {
+                    await receiveFileMetadata(data.metadata);
+                } else {
+                    await receiveP2PMessage(data);
+                }
+            });
+            
+            // Handler especial para chunks de archivos
+            registerFileChunkHandler(receiveFileChunk);
+            
+            showToast('Conectado a la red P2P', 'success');
+        } catch (error) {
+            console.warn('⚠️ Red P2P no disponible (modo offline):', error.message);
+            showToast('Modo offline: mensajes se guardan localmente', 'warning');
         }
-    });
-    
-    // Handler para chunks de archivos
-    registerFileChunkHandler(receiveFileChunk);
-    
-    showToast('Conectado a la red P2P', 'success');
-} catch (error) {
-    console.warn('⚠️ Red P2P no disponible (modo offline):', error.message);
-    showToast('Modo offline: mensajes se guardan localmente', 'warning');
-}
         
-        // Paso 7: Mostrar la app
         setTimeout(() => {
             showApp();
             showToast('CipherChat listo para usar', 'success');
@@ -211,7 +160,6 @@ try {
     }
 }
 
-// Iniciar cuando el DOM esté listo
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', initApp);
 } else {
