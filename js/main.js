@@ -168,19 +168,33 @@ async function initApp() {
         await renderChatList(openChatWindow);
         
         // Paso 6: Inicializar red P2P
-        updateSplashStatus('Conectando a la red P2P...');
-        try {
-            await initP2PNetwork();
-            
-            // Registrar handler para mensajes entrantes
-            // El PIN se limpia de guiones dentro de registerMessageHandler
-            registerMessageHandler(identity.pin, receiveP2PMessage);
-            
-            showToast('Conectado a la red P2P', 'success');
-        } catch (error) {
-            console.warn('⚠️ Red P2P no disponible (modo offline):', error.message);
-            showToast('Modo offline: mensajes se guardan localmente', 'warning');
+updateSplashStatus('Conectando a la red P2P...');
+try {
+    await initP2PNetwork();
+    registerMessageHandler(identity.pin, receiveP2PMessage);
+    
+    // Registrar handlers para archivos
+    const { registerFileChunkHandler } = await import('./network/p2p.js');
+    const { receiveFileChunk, receiveFileMetadata } = await import('./services/messaging.js');
+    
+    // Handler especial para metadatos de archivos
+    const originalHandler = receiveP2PMessage;
+    registerMessageHandler(identity.pin, async (data) => {
+        if (data.type === 'file-metadata') {
+            await receiveFileMetadata(data.metadata);
+        } else {
+            await originalHandler(data);
         }
+    });
+    
+    // Handler para chunks de archivos
+    registerFileChunkHandler(receiveFileChunk);
+    
+    showToast('Conectado a la red P2P', 'success');
+} catch (error) {
+    console.warn('⚠️ Red P2P no disponible (modo offline):', error.message);
+    showToast('Modo offline: mensajes se guardan localmente', 'warning');
+}
         
         // Paso 7: Mostrar la app
         setTimeout(() => {
