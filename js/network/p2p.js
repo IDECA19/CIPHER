@@ -1,4 +1,5 @@
 // js/network/p2p.js - Módulo de red P2P usando WebRTC (PeerJS)
+// Versión corregida: busca handler por MI PIN, no por el del remitente
 
 import { getIdentity } from '../core/storage.js';
 
@@ -6,7 +7,7 @@ let peer = null;
 let connections = new Map();
 let messageHandlers = new Map();
 let isConnected = false;
-let myPin = null; // PIN del usuario local
+let myPin = null; // PIN del usuario local (sin guiones, mayúsculas)
 
 /**
  * Inicializa la conexión P2P con PeerJS
@@ -19,7 +20,7 @@ export async function initP2PNetwork() {
         throw new Error('No se encontró identidad del usuario');
     }
 
-    // Guardar el PIN del usuario local
+    // Guardar el PIN del usuario local (sin guiones, mayúsculas)
     myPin = identity.pin.replace(/-/g, '').toUpperCase();
     
     // Usamos el PIN sin guiones y en minúsculas como ID único de Peer
@@ -82,8 +83,8 @@ function setupConnection(conn) {
     conn.on('data', (data) => {
         console.log('📨 Mensaje recibido vía WebRTC P2P:', data);
         
-        // IMPORTANTE: Buscar el handler usando MI PIN (el destinatario), no el del remitente
-        // Como solo tenemos un handler (el nuestro), siempre buscamos por myPin
+        // CORRECCIÓN CLAVE: Buscar el handler usando MI PIN (el destinatario)
+        // NO usar data.senderPin, sino myPin
         const handler = messageHandlers.get(myPin);
         
         if (handler) {
