@@ -18,8 +18,21 @@ export async function openChatWindow(pin, alias) {
     document.getElementById('chat-empty').classList.add('hidden');
     document.getElementById('chat-window').classList.remove('hidden');
     
+    // IMPORTANTE: Agregar clase para modo móvil
+    document.getElementById('app').classList.add('chat-open');
+    
     await loadMessages(pin);
     document.getElementById('message-input').focus();
+}
+
+/**
+ * Cierra la ventana de chat y vuelve a la lista (solo móvil)
+ */
+export function closeChatWindow() {
+    currentChatId = null;
+    document.getElementById('chat-window').classList.add('hidden');
+    document.getElementById('chat-empty').classList.remove('hidden');
+    document.getElementById('app').classList.remove('chat-open');
 }
 
 /**
@@ -121,4 +134,9 @@ function escapeHtml(text) {
 document.getElementById('message-input')?.addEventListener('input', function() {
     this.style.height = 'auto';
     this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+});
+
+// Botón de regreso (móvil)
+document.getElementById('btn-back')?.addEventListener('click', () => {
+    closeChatWindow();
 });
