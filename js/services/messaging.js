@@ -1,155 +1,92 @@
-// js/services/messaging.js - Gestión de mensajes y archivos (Local + P2P)
+// js/services/messaging.js - Servicio para gestionar el ciclo de vida de los mensajes
 
-import { STORAGE_CONFIG } from '../config.js';
-import { saveToStore, getAllFromStore, getByIndex } from '../core/storage.js';
-import { generateId } from '../utils/formatter.js';
-import { sendMessage as p2pSendMessage, sendFile } from '../network/p2p.js';
-import { 
-    prepareFileForSending, 
-    saveReceivedChunk, 
-    saveFileMetadata,
-    reconstructAndDecryptFile 
-} from './files.js';
+import { sendMessage as sendP2P, getConnectionStatus } from '../network/p2p.js';
+import { saveMessage, getMessagesByChat, markMessagesAsRead } from '../core/storage.js';
+import { encryptMessage, decryptMessage } from '../core/crypto.js';
+import { getIdentity } from '../core/storage.js';
 
-export async function saveMessage(chatId, text, isSent, senderPin = null, extraData = null) {
-    const message = {
-        id: generateId(),
-        chatId: chatId,
-        text: text,
-        isSent: isSent,
-        senderPin: senderPin,
-        timestamp: Date.now(),
-        status: isSent ? 'sent' : 'received',
-        type: 'text',
-        ...extraData
+/**
+ * Prepara y envía un mensaje cifrado
+ */
+export async function sendChatMessage(recipientPin, textContent) {
+    if (!textContent || textContent.trim() === '') {
+        throw new Error('El mensaje no puede estar vacío.');
+    }
+
+    const myIdentity = await getIdentity();
+    const timestamp = Date.now();
+    const messageId = `msg_${timestamp}_${Math.random().toString(36).substr(2, 9)}`;
+
+    // Estructura del mensaje en texto plano
+    const payload = {
+        id: messageId,
+        senderPin: myIdentity.pinFormatted,
+        recipientPin: recipientPin,
+        content: textContent.trim(),
+        timestamp: timestamp
     };
 
-    await saveToStore(STORAGE_CONFIG.stores.messages, message);
-    await updateChatPreview(chatId, text, message.timestamp);
-    return message;
-}
+    // Cifrar contenido
+    const encryptedContent = await encryptMessage(JSON.stringify(payload), recipientPin);
 
-export async function saveFileMessage(chatId, fileMetadata, isSent, senderPin = null) {
-    const message = {
-        id: generateId(),
-        chatId: chatId,
-        text: `📎 ${fileMetadata.name}`,
-        isSent: isSent,
-        senderPin: senderPin,
-        timestamp: Date.now(),
-        status: isSent ? 'sent' : 'received',
-        type: 'file',
-        fileId: fileMetadata.id,
-        fileName: fileMetadata.name,
-        fileSize: fileMetadata.size,
-        mimeType: fileMetadata.mimeType
+    const packet = {
+        type: 'chat_message',
+        senderPin: myIdentity.pinFormatted,
+        payload: encryptedContent,
+        timestamp: timestamp
     };
 
-    await saveToStore(STORAGE_CONFIG.stores.messages, message);
-    await updateChatPreview(chatId, message.text, message.timestamp);
-    return message;
-}
+    // Guardar en la base de datos local (IndexedDB) como enviado
+    const localRecord = {
+        ...payload,
+        isOutgoing: true,
+        status: 'sent'
+    };
+    await saveMessage(localRecord);
 
-export async function sendP2PMessage(targetPin, text, senderPin) {
-    const message = await saveMessage(targetPin, text, true, senderPin);
-    
-    try {
-        const result = await p2pSendMessage(targetPin, {
-            id: message.id,
-            text: text,
-            senderPin: senderPin,
-            type: 'text'
-        });
-        
-        if (result.status === 'pending') {
-            console.log('⏳ Mensaje en cola de envío P2P (se enviará automáticamente al conectar)');
-        } else {
-            console.log('✅ Mensaje enviado por P2P');
+    // Intentar enviar por la red P2P
+    if (getConnectionStatus()) {
+        try {
+            await sendP2P(recipientPin, packet);
+            console.log('✅ Mensaje P2P transmitido con éxito');
+        } catch (err) {
+            console.warn('⚠️ No se pudo entregar por P2P inmediatamente (se guardó localmente):', err.message);
         }
-    } catch (error) {
-        console.warn('⚠️ Error enviando por P2P:', error.message);
+    } else {
+        console.warn('⚠️ Red P2P offline. Mensaje guardado localmente.');
     }
-    
-    return message;
+
+    return localRecord;
 }
 
-export async function sendP2PFile(targetPin, file, senderPin, onProgress = null) {
-    const fileData = await prepareFileForSending(file);
-    const message = await saveFileMessage(targetPin, fileData.metadata, true, senderPin);
-    
+/**
+ * Recibe y procesa mensajes P2P entrantes
+ */
+export async function receiveP2PMessage(packet) {
+    if (!packet || packet.type !== 'chat_message') return;
+
     try {
-        await sendFile(targetPin, fileData, onProgress);
-        console.log('✅ Archivo enviado por P2P');
-    } catch (error) {
-        console.warn('⚠️ Error enviando archivo por P2P:', error.message);
+        const decryptedJson = await decryptMessage(packet.payload, packet.senderPin);
+        const messageData = JSON.parse(decryptedJson);
+
+        const localRecord = {
+            id: messageData.id,
+            senderPin: messageData.senderPin,
+            recipientPin: messageData.recipientPin,
+            content: messageData.content,
+            timestamp: messageData.timestamp,
+            isOutgoing: false,
+            status: 'received'
+        };
+
+        await saveMessage(localRecord);
+
+        // Notificar a la interfaz de usuario para actualizar los chats
+        window.dispatchEvent(new CustomEvent('chat-updated', { 
+            detail: { senderPin: messageData.senderPin } 
+        }));
+
+    } catch (err) {
+        console.error('❌ Error al descifrar el mensaje recibido:', err);
     }
-    
-    return message;
-}
-
-export async function receiveP2PMessage(messageData) {
-    const { id, text, senderPin, timestamp } = messageData;
-    const message = await saveMessage(senderPin, text, false, senderPin);
-    
-    window.dispatchEvent(new CustomEvent('message-received', {
-        detail: { chatId: senderPin, message }
-    }));
-    
-    console.log('📨 Mensaje recibido y guardado:', message);
-}
-
-export async function receiveFileMetadata(metadata) {
-    await saveFileMetadata(metadata);
-    console.log('📥 Metadatos de archivo recibidos:', metadata.name);
-}
-
-export async function receiveFileChunk(chunkData) {
-    const { fileId, chunkIndex, chunkData: data, totalChunks } = chunkData;
-    const isComplete = await saveReceivedChunk(fileId, chunkIndex, data, totalChunks);
-    
-    if (isComplete) {
-        console.log('✅ Archivo completo recibido:', fileId);
-        const { getFromStore } = await import('../core/storage.js');
-        const fileRecord = await getFromStore(STORAGE_CONFIG.stores.files, fileId);
-        
-        if (fileRecord && fileRecord.metadata) {
-            const message = await saveFileMessage(
-                fileRecord.metadata.senderPin || 'unknown',
-                fileRecord.metadata,
-                false,
-                fileRecord.metadata.senderPin
-            );
-            
-            window.dispatchEvent(new CustomEvent('message-received', {
-                detail: { chatId: fileRecord.metadata.senderPin || 'unknown', message }
-            }));
-            
-            window.dispatchEvent(new CustomEvent('file-complete', {
-                detail: { fileId, metadata: fileRecord.metadata }
-            }));
-        }
-    }
-}
-
-export async function downloadReceivedFile(fileId, metadata) {
-    const blob = await reconstructAndDecryptFile(fileId, metadata);
-    const { downloadFile } = await import('./files.js');
-    downloadFile(blob, metadata.name);
-}
-
-export async function getChatMessages(chatId) {
-    const messages = await getByIndex(STORAGE_CONFIG.stores.messages, 'chatId', chatId);
-    return messages.sort((a, b) => a.timestamp - b.timestamp);
-}
-
-async function updateChatPreview(chatId, lastMessage, timestamp) {
-    await saveToStore(STORAGE_CONFIG.stores.chats, {
-        id: chatId,
-        lastMessage: lastMessage,
-        lastMessageAt: timestamp
-    });
-}
-
-export async function getAllChatsPreview() {
-    return await getAllFromStore(STORAGE_CONFIG.stores.chats);
 }
