@@ -1,211 +1,147 @@
-// js/core/crypto.js - Wrapper de Web Crypto API para cifrado
-
-import { CRYPTO_CONFIG } from '../config.js';
+// js/core/crypto.js - Cifrado de extremo a extremo (E2EE) con Web Crypto API
 
 /**
- * Convierte un ArrayBuffer a string hexadecimal
+ * Convierte un String en ArrayBuffer (UTF-8)
  */
-export function bufferToHex(buffer) {
-    return Array.from(new Uint8Array(buffer))
-        .map(b => b.toString(16).padStart(2, '0'))
-        .join('');
+function stringToArrayBuffer(str) {
+    const encoder = new TextEncoder();
+    return encoder.encode(str);
 }
 
 /**
- * Convierte un string hexadecimal a Uint8Array
+ * Convierte un ArrayBuffer en String (UTF-8)
  */
-export function hexToBuffer(hex) {
-    const bytes = new Uint8Array(hex.length / 2);
-    for (let i = 0; i < hex.length; i += 2) {
-        bytes[i / 2] = parseInt(hex.substr(i, 2), 16);
+function arrayBufferToString(buffer) {
+    const decoder = new TextDecoder();
+    return decoder.decode(buffer);
+}
+
+/**
+ * Convierte ArrayBuffer a una cadena Base64
+ */
+function bufferToBase64(buffer) {
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    for (let i = 0; i < bytes.byteLength; i++) {
+        binary += String.fromCharCode(bytes[i]);
     }
-    return bytes;
+    return window.btoa(binary);
 }
 
 /**
- * Convierte string a ArrayBuffer
+ * Convierte una cadena Base64 a ArrayBuffer
  */
-export function stringToBuffer(str) {
-    return new TextEncoder().encode(str);
-}
-
-/**
- * Convierte ArrayBuffer a string
- */
-export function bufferToString(buffer) {
-    return new TextDecoder().decode(buffer);
-}
-
-/**
- * Calcula el hash SHA-256 de un buffer
- * @param {ArrayBuffer} buffer - Datos a hashear
- * @returns {Promise<ArrayBuffer>} Hash SHA-256
- */
-export async function sha256(buffer) {
-    return await crypto.subtle.digest('SHA-256', buffer);
-}
-
-/**
- * Genera un par de claves Ed25519 para identidad
- * @returns {Promise<CryptoKeyPair>} Par de claves (publicKey, privateKey)
- */
-export async function generateIdentityKeys() {
-    try {
-        // Ed25519 no siempre está soportado en todos los navegadores
-        // Fallback a ECDH P-256 si no está disponible
-        const supportsEd25519 = crypto.subtle.exportKey && 
-            'Ed25519' in (globalThis.crypto?.subtle || {});
-        
-        if (supportsEd25519) {
-            return await crypto.subtle.generateKey(
-                { name: "Ed25519" },
-                true, // extractable
-                ["sign", "verify"]
-            );
-        }
-        
-        // Fallback: usar ECDH P-256 (ampliamente soportado)
-        return await crypto.subtle.generateKey(
-            { name: "ECDH", namedCurve: "P-256" },
-            true,
-            ["deriveKey", "deriveBits"]
-        );
-    } catch (error) {
-        console.error("Error generando claves de identidad:", error);
-        throw new Error("No se pudieron generar las claves de identidad");
+function base64ToBuffer(base64) {
+    const binaryString = window.atob(base64);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
     }
+    return bytes.buffer;
 }
 
 /**
- * Exporta una clave pública a formato exportable (hex)
- * @param {CryptoKey} publicKey - Clave pública
- * @returns {Promise<string>} Clave en formato hexadecimal
+ * Deriva una clave simétrica AES-GCM a partir del PIN objetivo usando HKDF
  */
-export async function exportPublicKey(publicKey) {
-    const exported = await crypto.subtle.exportKey("raw", publicKey);
-    return bufferToHex(exported);
-}
-
-/**
- * Exporta una clave privada a formato JWK (para almacenamiento)
- * @param {CryptoKey} privateKey - Clave privada
- * @returns {Promise<JsonWebKey>} Clave en formato JWK
- */
-export async function exportPrivateKey(privateKey) {
-    return await crypto.subtle.exportKey("jwk", privateKey);
-}
-
-/**
- * Importa una clave privada desde JWK
- * @param {JsonWebKey} jwk - Clave en formato JWK
- * @param {string} algorithm - Algoritmo ("Ed25519" o "ECDH")
- * @returns {Promise<CryptoKey>} Clave privada importada
- */
-export async function importPrivateKey(jwk, algorithm = "ECDH") {
-    const algo = algorithm === "Ed25519" 
-        ? { name: "Ed25519" }
-        : { name: "ECDH", namedCurve: "P-256" };
+async function deriveSymmetricKey(secretPin) {
+    const cleanPin = secretPin.replace(/-/g, '').toLowerCase();
+    const enc = new TextEncoder();
     
-    return await crypto.subtle.importKey(
-        "jwk",
-        jwk,
-        algo,
-        true,
-        ["deriveKey", "deriveBits"]
-    );
-}
-
-/**
- * Genera una clave simétrica AES-GCM para cifrar mensajes
- * @returns {Promise<CryptoKey>} Clave AES-256
- */
-export async function generateSymmetricKey() {
-    return await crypto.subtle.generateKey(
-        { 
-            name: CRYPTO_CONFIG.encryptionAlgorithm,
-            length: CRYPTO_CONFIG.encryptionKeyLength
-        },
-        true,
-        ["encrypt", "decrypt"]
-    );
-}
-
-/**
- * Cifra datos con AES-GCM
- * @param {CryptoKey} key - Clave de cifrado
- * @param {string} data - Datos a cifrar
- * @returns {Promise<{iv: string, ciphertext: string}>} Datos cifrados
- */
-export async function encryptData(key, data) {
-    const iv = crypto.getRandomValues(new Uint8Array(CRYPTO_CONFIG.ivLength));
-    const encodedData = stringToBuffer(data);
-    
-    const ciphertext = await crypto.subtle.encrypt(
-        { 
-            name: CRYPTO_CONFIG.encryptionAlgorithm,
-            iv: iv
-        },
-        key,
-        encodedData
-    );
-    
-    return {
-        iv: bufferToHex(iv),
-        ciphertext: bufferToHex(ciphertext)
-    };
-}
-
-/**
- * Descifra datos con AES-GCM
- * @param {CryptoKey} key - Clave de descifrado
- * @param {string} iv - IV en hexadecimal
- * @param {string} ciphertext - Texto cifrado en hexadecimal
- * @returns {Promise<string>} Datos descifrados
- */
-export async function decryptData(key, iv, ciphertext) {
-    const decodedIv = hexToBuffer(iv);
-    const decodedCiphertext = hexToBuffer(ciphertext);
-    
-    const decrypted = await crypto.subtle.decrypt(
-        { 
-            name: CRYPTO_CONFIG.encryptionAlgorithm,
-            iv: decodedIv
-        },
-        key,
-        decodedCiphertext
-    );
-    
-    return bufferToString(decrypted);
-}
-
-/**
- * Deriva una clave AES desde una passphrase (para cifrar almacenamiento local)
- * @param {string} passphrase - Contraseña maestra
- * @param {Uint8Array} salt - Sal aleatoria
- * @returns {Promise<CryptoKey>} Clave AES derivada
- */
-export async function deriveKeyFromPassphrase(passphrase, salt) {
-    const baseKey = await crypto.subtle.importKey(
-        "raw",
-        stringToBuffer(passphrase),
-        "PBKDF2",
+    // Importar el PIN como material clave inicial
+    const keyMaterial = await window.crypto.subtle.importKey(
+        'raw',
+        enc.encode(cleanPin),
+        { name: 'HKDF' },
         false,
-        ["deriveKey"]
+        ['deriveKey']
     );
-    
-    return await crypto.subtle.deriveKey(
+
+    // Derivar una clave simétrica AES-GCM de 256 bits
+    return await window.crypto.subtle.deriveKey(
         {
-            name: "PBKDF2",
-            salt: salt,
-            iterations: 100000,
-            hash: "SHA-256"
+            name: 'HKDF',
+            salt: enc.encode('cipherchat-shared-salt'),
+            info: enc.encode('cipherchat-e2ee-encryption'),
+            hash: 'SHA-256'
         },
-        baseKey,
-        { 
-            name: CRYPTO_CONFIG.encryptionAlgorithm,
-            length: CRYPTO_CONFIG.encryptionKeyLength
-        },
+        keyMaterial,
+        { name: 'AES-GCM', length: 256 },
         false,
-        ["encrypt", "decrypt"]
+        ['encrypt', 'decrypt']
     );
+}
+
+/**
+ * Cifra un texto plano utilizando AES-GCM
+ * @param {string} text - Texto plano o JSON codificado a cifrar
+ * @param {string} recipientPin - PIN del destinatario
+ * @returns {Promise<string>} Objeto en formato JSON/Base64 con IV y contenido cifrado
+ */
+export async function encryptMessage(text, recipientPin) {
+    try {
+        const key = await deriveSymmetricKey(recipientPin);
+        
+        // Generar IV (Vector de Inicialización) criptográficamente seguro de 12 bytes
+        const iv = window.crypto.getRandomValues(new Uint8Array(12));
+        const encodedData = stringToArrayBuffer(text);
+
+        const encryptedBuffer = await window.crypto.subtle.encrypt(
+            {
+                name: 'AES-GCM',
+                iv: iv
+            },
+            key,
+            encodedData
+        );
+
+        // Retornar paquete formateado
+        return JSON.stringify({
+            iv: bufferToBase64(iv.buffer),
+            cipher: bufferToBase64(encryptedBuffer)
+        });
+    } catch (error) {
+        console.error('❌ Error al cifrar mensaje:', error);
+        throw new Error('No se pudo cifrar el mensaje.');
+    }
+}
+
+/**
+ * Descifra un mensaje cifrado recibido
+ * @param {string} encryptedPacket - Paquete en JSON/Base64 (contiene IV y cipher)
+ * @param {string} senderPin - PIN del emisor
+ * @returns {Promise<string>} Texto plano o JSON descifrado
+ */
+export async function decryptMessage(encryptedPacket, senderPin) {
+    try {
+        let parsedPacket;
+        
+        // Si no es un objeto o cadena válida, devolver directamente si no viene cifrado
+        try {
+            parsedPacket = typeof encryptedPacket === 'string' ? JSON.parse(encryptedPacket) : encryptedPacket;
+        } catch (e) {
+            return encryptedPacket;
+        }
+
+        if (!parsedPacket.iv || !parsedPacket.cipher) {
+            throw new Error('Estructura de mensaje cifrado inválida');
+        }
+
+        const key = await deriveSymmetricKey(senderPin);
+        const ivBuffer = base64ToBuffer(parsedPacket.iv);
+        const cipherBuffer = base64ToBuffer(parsedPacket.cipher);
+
+        const decryptedBuffer = await window.crypto.subtle.decrypt(
+            {
+                name: 'AES-GCM',
+                iv: new Uint8Array(ivBuffer)
+            },
+            key,
+            cipherBuffer
+        );
+
+        return arrayBufferToString(decryptedBuffer);
+    } catch (error) {
+        console.error('❌ Error al descifrar mensaje:', error);
+        throw new Error('Error al descifrar el mensaje entrante.');
+    }
 }
