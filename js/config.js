@@ -44,7 +44,7 @@ export const CRYPTO_CONFIG = {
 // Configuración de almacenamiento
 export const STORAGE_CONFIG = {
     dbName: "cipherchat_db",
-    dbVersion: 1,
+    dbVersion: 2,
     stores: {
         identity: "identity",
         contacts: "contacts",
