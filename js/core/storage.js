@@ -63,6 +63,9 @@ export async function initDatabase() {
                     keyPath: "id" 
                 });
             }
+            if (!database.objectStoreNames.contains('files')) {
+            database.createObjectStore('files', { keyPath: 'id' });
+            }
             
             console.log("📦 Almacenes de IndexedDB creados/verificados");
         };
