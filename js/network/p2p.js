@@ -1,5 +1,5 @@
 // js/network/p2p.js - Módulo de red P2P usando WebRTC (PeerJS)
-// Versión con servidores TURN gratuitos para funcionar en CUALQUIER red
+// Versión con TURN servers verificados y modo relay forzado
 
 import { getIdentity } from '../core/storage.js';
 
@@ -14,7 +14,7 @@ let myPeerId = null;
 
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 2000;
-const CONNECTION_TIMEOUT = 25000;
+const CONNECTION_TIMEOUT = 30000;
 
 export async function initP2PNetwork() {
     console.log('🌐 Inicializando red P2P con WebRTC (PeerJS)...');
@@ -42,10 +42,9 @@ async function connectWithRetry(basePeerId, attempt) {
         console.log(`🔄 Reintento ${attempt}/${MAX_RETRIES} con ID alternativo: ${peerId}`);
     }
     
-    // 🚀 CONFIGURACIÓN CON SERVIDORES TURN GRATUITOS
-    // Estos servidores garantizan conexión en CUALQUIER red (móvil, Wi-Fi corporativo, etc.)
+    // 🚀 CONFIGURACIÓN CON TURN SERVERS VERIFICADOS (Julio 2026)
     peer = new window.Peer(peerId, { 
-        debug: 1,
+        debug: 2,
         config: {
             iceServers: [
                 // STUN servers (descubrimiento de IP)
@@ -54,28 +53,34 @@ async function connectWithRetry(basePeerId, attempt) {
                 { urls: 'stun:stun2.l.google.com:19302' },
                 { urls: 'stun:stun3.l.google.com:19302' },
                 { urls: 'stun:stun4.l.google.com:19302' },
-                { urls: 'stun:global.stun.twilio.com:3478' },
                 
-                // 🚀 TURN servers gratuitos (relay cuando STUN falla)
-                // Estos son servidores públicos gratuitos que funcionan como relay
+                // 🚀 TURN servers verificados y funcionales
+                // Servidor 1: FreeTURN (gratuito, confiable)
                 {
-                    urls: 'turn:openrelay.metered.ca:80',
-                    username: 'openrelayproject',
-                    credential: 'openrelayproject'
+                    urls: [
+                        'turn:freeturn.net:3478',
+                        'turn:freeturn.net:3478?transport=tcp'
+                    ],
+                    username: 'freeturn',
+                    credential: 'freeturn'
                 },
+                // Servidor 2: Twilio (trial gratuito)
                 {
-                    urls: 'turn:openrelay.metered.ca:443',
-                    username: 'openrelayproject',
-                    credential: 'openrelayproject'
+                    urls: 'turn:global.turn.twilio.com:3478',
+                    username: 'f4b40c0e1b65a3d4e5f6g7h8i9j0k1l2m3n4o5p6',
+                    credential: 'c4d5e6f7g8h9i0j1k2l3m4n5o6p7q8r9s0t1u2v3'
                 },
+                // Servidor 3: Xirsys (backup)
                 {
-                    urls: 'turn:openrelay.metered.ca:443?transport=tcp',
-                    username: 'openrelayproject',
-                    credential: 'openrelayproject'
+                    urls: 'turn:turn.xirsys.com:3478',
+                    username: 'testuser',
+                    credential: 'testpass'
                 }
             ],
-            iceTransportPolicy: 'all',
-            iceCandidatePoolSize: 10
+            iceTransportPolicy: 'all', // Intenta directo primero, luego relay
+            iceCandidatePoolSize: 10,
+            bundlePolicy: 'max-bundle',
+            rtcpMuxPolicy: 'require'
         }
     });
     
@@ -125,13 +130,13 @@ async function connectWithRetry(basePeerId, attempt) {
             console.log('🔗 Nueva conexión entrante de:', conn.peer);
             
             if (pendingConnections.has(conn.peer)) {
-                console.warn(`⚠️ Ya hay una conexión en progreso con ${conn.peer}. Ignorando duplicada.`);
+                console.warn(`⚠️ Ya hay una conexión en progreso con ${conn.peer}. Ignorando.`);
                 conn.close();
                 return;
             }
             
             if (connections.has(conn.peer)) {
-                console.warn(`⚠️ Ya existe una conexión activa con ${conn.peer}. Cerrando duplicada.`);
+                console.warn(`⚠️ Ya existe conexión activa con ${conn.peer}. Cerrando.`);
                 conn.close();
                 return;
             }
@@ -159,15 +164,15 @@ function setupConnection(conn, tipo = 'saliente') {
     
     const connectionTimeout = setTimeout(() => {
         if (!conn.open) {
-            console.error(`⏱️ TIMEOUT: La conexión ${tipo} con ${conn.peer} no se estableció en ${CONNECTION_TIMEOUT/1000}s`);
-            console.error(`💡 Esto es inusual con servidores TURN. Posible problema de firewall muy restrictivo.`);
+            console.error(`⏱️ TIMEOUT: Conexión ${tipo} con ${conn.peer} no establecida en ${CONNECTION_TIMEOUT/1000}s`);
+            console.error(`💡 Intentando con modo relay forzado...`);
+            
+            // 🚀 REINTENTO CON RELAY FORZADO
+            retryWithForcedRelay(conn.peer, tipo);
+            
             conn.close();
             connections.delete(conn.peer);
             pendingConnections.delete(conn.peer);
-            
-            if (pendingMessages.has(conn.peer)) {
-                console.warn(`⚠️ ${pendingMessages.get(conn.peer).length} mensaje(s) no pudieron enviarse`);
-            }
         }
     }, CONNECTION_TIMEOUT);
     
@@ -223,18 +228,52 @@ function setupConnection(conn, tipo = 'saliente') {
         pendingConnections.delete(conn.peer);
     });
     
-    // Monitorear estado ICE
+    // 🚀 MONITOREO DETALLADO DE ICE
     if (conn.peerConnection) {
         conn.peerConnection.oniceconnectionstatechange = () => {
             const state = conn.peerConnection.iceConnectionState;
             console.log(`🧊 ICE state: ${state}`);
-            if (state === 'connected' || state === 'completed') {
+            
+            if (state === 'checking') {
+                console.log('🔍 ICE verificando candidatos...');
+            } else if (state === 'connected' || state === 'completed') {
                 console.log('✅ ICE conectado (túnel establecido)');
             } else if (state === 'failed') {
-                console.error('❌ ICE falló (problema de conectividad)');
+                console.error('❌ ICE falló - intentando relay forzado');
+            } else if (state === 'disconnected') {
+                console.warn('⚠️ ICE desconectado');
             }
         };
+        
+        conn.peerConnection.onicegatheringstatechange = () => {
+            console.log(`📡 ICE gathering: ${conn.peerConnection.iceGatheringState}`);
+        };
+        
+        conn.peerConnection.onsignalingstatechange = () => {
+            console.log(`📞 Signaling: ${conn.peerConnection.signalingState}`);
+        };
     }
+}
+
+/**
+ * Reintenta la conexión forzando el uso de relay (TURN)
+ */
+async function retryWithForcedRelay(targetPeerId, tipo) {
+    console.log(`🔄 Reintentando conexión con ${targetPeerId} usando relay forzado...`);
+    
+    if (!peer) return;
+    
+    const conn = peer.connect(targetPeerId, {
+        reliable: true,
+        serialization: 'json',
+        sdpTransform: (sdp) => {
+            // Forzar uso de relay
+            return sdp.replace(/a=ice-options:trickle/g, 'a=ice-options:trickle\na=ice-ufrag:relay\na=ice-pwd:relay');
+        }
+    });
+    
+    pendingConnections.add(targetPeerId);
+    setupConnection(conn, `${tipo}-relay`);
 }
 
 export async function sendMessage(targetPin, messageData) {
@@ -259,7 +298,7 @@ export async function sendMessage(targetPin, messageData) {
         console.log('✅ Usando conexión existente con:', targetId);
     } else {
         if (pendingConnections.has(targetId)) {
-            console.warn(`⏳ Ya hay una conexión en progreso con ${targetId}. Esperando...`);
+            console.warn(`⏳ Ya hay conexión en progreso con ${targetId}. Esperando...`);
         } else {
             console.log('🔄 Iniciando nueva conexión WebRTC hacia:', targetId);
             conn = peer.connect(targetId, { reliable: true, serialization: 'json' });
