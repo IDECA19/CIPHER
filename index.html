@@ -69,22 +69,38 @@
             </div>
             
             <div class="chat-window hidden" id="chat-window">
-    <header class="chat-window__header">
-        <button class="btn-back" id="btn-back" title="Volver a chats">←</button>
-        <div class="chat-window__info">
-            <div class="chat-window__name" id="chat-name">---</div>
-            <div class="chat-window__pin" id="chat-pin">---</div>
-        </div>
-    </header>
-    
-    <div class="chat-window__messages" id="chat-messages"></div>
-    
-    <footer class="chat-window__input">
-        <textarea id="message-input" placeholder="Escribe un mensaje..." rows="1"></textarea>
-        <button class="send-btn" id="btn-send">➤</button>
-    </footer>
-</div>
+                <header class="chat-window__header">
+                    <button class="btn-back" id="btn-back" title="Volver a chats">←</button>
+                    <div class="chat-window__info">
+                        <div class="chat-window__name" id="chat-name">---</div>
+                        <div class="chat-window__pin" id="chat-pin">---</div>
+                    </div>
+                </header>
+                
+                <div class="chat-window__messages" id="chat-messages"></div>
+                
+                <footer class="chat-window__input">
+                    <button class="attach-btn" id="btn-attach" title="Adjuntar archivo">📎</button>
+                    <textarea id="message-input" placeholder="Escribe un mensaje..." rows="1"></textarea>
+                    <button class="send-btn" id="btn-send">➤</button>
+                </footer>
+            </div>
         </main>
+    </div>
+
+    <!-- Input oculto para seleccionar archivos -->
+    <input type="file" id="file-input" style="display: none;" multiple>
+
+    <!-- Overlay de progreso de archivo -->
+    <div class="file-progress-overlay hidden" id="file-progress-overlay">
+        <div class="file-progress-box">
+            <div class="file-progress-icon">📎</div>
+            <div class="file-progress-name" id="file-progress-name">Enviando archivo...</div>
+            <div class="file-progress-bar">
+                <div class="file-progress-fill" id="file-progress-fill"></div>
+            </div>
+            <div class="file-progress-percent" id="file-progress-percent">0%</div>
+        </div>
     </div>
 
     <!-- Contenedor de notificaciones -->
@@ -97,6 +113,7 @@
     <script type="module" src="js/core/identity.js"></script>
     <script type="module" src="js/core/storage.js"></script>
     <script type="module" src="js/services/contacts.js"></script>
+    <script type="module" src="js/services/files.js"></script>
     <script type="module" src="js/services/messaging.js"></script>
     <script type="module" src="js/network/p2p.js"></script>
     <script type="module" src="js/ui/chat_list.js"></script>
