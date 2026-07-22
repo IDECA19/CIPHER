@@ -184,25 +184,170 @@
     background: var(--accent-hover);
 }
 
-/* Responsive básico */
+/* ============================================
+   RESPONSIVE - MÓVIL (WhatsApp-like behavior)
+   ============================================ */
 @media (max-width: 768px) {
     .app {
         grid-template-columns: 1fr;
+        position: relative;
     }
     
+    /* Por defecto: mostrar solo sidebar */
     .sidebar {
         display: flex;
+        width: 100%;
     }
     
     .chat-area {
         display: none;
+        position: absolute;
+        inset: 0;
+        z-index: 10;
+        background: var(--bg-primary);
     }
     
+    /* Cuando hay un chat abierto: mostrar solo el chat */
     .app.chat-open .sidebar {
         display: none;
     }
     
     .app.chat-open .chat-area {
         display: flex;
+    }
+    
+    /* Botón de regreso (solo visible en móvil) */
+    .btn-back {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 36px;
+        height: 36px;
+        border-radius: var(--radius-full);
+        background: var(--bg-hover);
+        color: var(--text-primary);
+        font-size: 1.2rem;
+        font-weight: bold;
+        transition: background var(--transition-fast);
+        flex-shrink: 0;
+    }
+    
+    .btn-back:hover {
+        background: var(--bg-tertiary);
+    }
+    
+    /* Ajustes de la ventana de chat en móvil */
+    .chat-window__header {
+        padding: var(--spacing-sm);
+    }
+    
+    .chat-window__messages {
+        padding: var(--spacing-sm);
+    }
+    
+    .message {
+        max-width: 85%;
+    }
+    
+    /* Ajustes del sidebar en móvil */
+    .sidebar__header {
+        padding: var(--spacing-sm);
+    }
+    
+    .chat-item {
+        padding: var(--spacing-sm);
+    }
+    
+    .chat-item__avatar {
+        width: 44px;
+        height: 44px;
+        font-size: 1rem;
+    }
+    
+    /* Estado vacío del chat en móvil */
+    .chat-area__empty {
+        padding: var(--spacing-md);
+    }
+    
+    .chat-area__logo {
+        font-size: 3rem;
+    }
+    
+    .chat-area__empty h2 {
+        font-size: 1.3rem;
+    }
+    
+    .my-pin-display {
+        flex-direction: column;
+        align-items: stretch;
+        gap: var(--spacing-xs);
+        font-size: 0.85rem;
+    }
+    
+    .my-pin-display code {
+        font-size: 1rem;
+        text-align: center;
+    }
+    
+    .btn-copy {
+        width: 100%;
+    }
+    
+    /* Modal de contactos en móvil */
+    .modal {
+        width: 95vw;
+        max-width: 95vw;
+        padding: var(--spacing-md);
+    }
+    
+    .contact-item {
+        padding: var(--spacing-sm);
+        gap: var(--spacing-sm);
+    }
+    
+    .contact-item__avatar {
+        width: 40px;
+        height: 40px;
+        font-size: 1rem;
+    }
+    
+    .contact-item__pin {
+        font-size: 0.75rem;
+    }
+    
+    /* Toast en móvil */
+    .toast-container {
+        top: var(--spacing-sm);
+        right: var(--spacing-sm);
+        left: var(--spacing-sm);
+    }
+    
+    .toast {
+        min-width: auto;
+        width: 100%;
+    }
+}
+
+/* Pantallas muy pequeñas (móviles pequeños) */
+@media (max-width: 380px) {
+    .sidebar__actions {
+        gap: 2px;
+    }
+    
+    .icon-btn {
+        width: 32px;
+        height: 32px;
+        font-size: 1rem;
+    }
+    
+    .user-info__pin {
+        font-size: 0.85rem;
+    }
+}
+
+/* Pantallas grandes (desktop) - ocultar botón de regreso */
+@media (min-width: 769px) {
+    .btn-back {
+        display: none;
     }
 }
