@@ -1,7 +1,21 @@
 // js/network/p2p.js - Módulo de red P2P usando WebRTC (PeerJS)
 // Versión con TURN servers verificados y modo relay forzado
 
+// js/network/p2p.js - Módulo de red P2P usando libp2p
+
+import { createLibp2p } from 'libp2p';
+import { webRTC } from '@libp2p/webrtc'; // 👈 Nombre de paquete y exportación corregidos
+import { webSockets } from '@libp2p/websockets';
+import { kadDHT } from '@libp2p/kad-dht';
+import { gossipsub } from '@chainsafe/libp2p-gossipsub';
+import { noise } from '@chainsafe/libp2p-noise';
+import { yamux } from '@chainsafe/libp2p-yamux';
+import { bootstrap } from '@libp2p/bootstrap';
+import { identify } from '@libp2p/identify';
+
+import { NETWORK_CONFIG } from '../config.js';
 import { getIdentity } from '../core/storage.js';
+
 
 let peer = null;
 let connections = new Map();
