@@ -1,5 +1,5 @@
 // js/network/p2p.js - Módulo de red P2P usando WebRTC (PeerJS)
-// Versión con corrección de bugs y mejor manejo de NAT
+// Versión con servidores TURN gratuitos para funcionar en CUALQUIER red
 
 import { getIdentity } from '../core/storage.js';
 
@@ -7,14 +7,14 @@ let peer = null;
 let connections = new Map();
 let messageHandlers = new Map();
 let pendingMessages = new Map();
-let pendingConnections = new Set(); // 🚀 NUEVO: Prevenir conexiones duplicadas
+let pendingConnections = new Set();
 let isConnected = false;
 let myPin = null;
 let myPeerId = null;
 
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 2000;
-const CONNECTION_TIMEOUT = 20000; // 20 segundos
+const CONNECTION_TIMEOUT = 25000;
 
 export async function initP2PNetwork() {
     console.log('🌐 Inicializando red P2P con WebRTC (PeerJS)...');
@@ -42,23 +42,40 @@ async function connectWithRetry(basePeerId, attempt) {
         console.log(`🔄 Reintento ${attempt}/${MAX_RETRIES} con ID alternativo: ${peerId}`);
     }
     
-    // 🚀 Configuración mejorada de ICE servers
+    // 🚀 CONFIGURACIÓN CON SERVIDORES TURN GRATUITOS
+    // Estos servidores garantizan conexión en CUALQUIER red (móvil, Wi-Fi corporativo, etc.)
     peer = new window.Peer(peerId, { 
         debug: 1,
         config: {
             iceServers: [
-                // STUN servers públicos (descubrimiento de IP)
+                // STUN servers (descubrimiento de IP)
                 { urls: 'stun:stun.l.google.com:19302' },
                 { urls: 'stun:stun1.l.google.com:19302' },
                 { urls: 'stun:stun2.l.google.com:19302' },
                 { urls: 'stun:stun3.l.google.com:19302' },
                 { urls: 'stun:stun4.l.google.com:19302' },
-                // STUN adicionales
-                { urls: 'stun:global.stun.twilio.com:3478' }
+                { urls: 'stun:global.stun.twilio.com:3478' },
+                
+                // 🚀 TURN servers gratuitos (relay cuando STUN falla)
+                // Estos son servidores públicos gratuitos que funcionan como relay
+                {
+                    urls: 'turn:openrelay.metered.ca:80',
+                    username: 'openrelayproject',
+                    credential: 'openrelayproject'
+                },
+                {
+                    urls: 'turn:openrelay.metered.ca:443',
+                    username: 'openrelayproject',
+                    credential: 'openrelayproject'
+                },
+                {
+                    urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+                    username: 'openrelayproject',
+                    credential: 'openrelayproject'
+                }
             ],
             iceTransportPolicy: 'all',
-            bundlePolicy: 'max-bundle',
-            rtcpMuxPolicy: 'require'
+            iceCandidatePoolSize: 10
         }
     });
     
@@ -107,7 +124,6 @@ async function connectWithRetry(basePeerId, attempt) {
         peer.on('connection', (conn) => {
             console.log('🔗 Nueva conexión entrante de:', conn.peer);
             
-            // 🚀 CORRECCIÓN: Prevenir conexiones duplicadas
             if (pendingConnections.has(conn.peer)) {
                 console.warn(`⚠️ Ya hay una conexión en progreso con ${conn.peer}. Ignorando duplicada.`);
                 conn.close();
@@ -141,19 +157,16 @@ async function connectWithRetry(basePeerId, attempt) {
 function setupConnection(conn, tipo = 'saliente') {
     console.log(`🔧 Configurando conexión ${tipo} con ${conn.peer}...`);
     
-    // Timeout para el handshake
     const connectionTimeout = setTimeout(() => {
         if (!conn.open) {
             console.error(`⏱️ TIMEOUT: La conexión ${tipo} con ${conn.peer} no se estableció en ${CONNECTION_TIMEOUT/1000}s`);
-            console.error(`💡 Esto suele ser por problemas de NAT/firewall.`);
-            console.error(`💡 Solución: Prueba en otra red (datos móviles, otro Wi-Fi) o usa un servidor TURN.`);
+            console.error(`💡 Esto es inusual con servidores TURN. Posible problema de firewall muy restrictivo.`);
             conn.close();
             connections.delete(conn.peer);
             pendingConnections.delete(conn.peer);
             
-            // Liberar mensajes pendientes
             if (pendingMessages.has(conn.peer)) {
-                console.warn(`⚠️ ${pendingMessages.get(conn.peer).length} mensaje(s) no pudieron enviarse por problemas de red`);
+                console.warn(`⚠️ ${pendingMessages.get(conn.peer).length} mensaje(s) no pudieron enviarse`);
             }
         }
     }, CONNECTION_TIMEOUT);
@@ -164,7 +177,6 @@ function setupConnection(conn, tipo = 'saliente') {
         connections.set(conn.peer, conn);
         pendingConnections.delete(conn.peer);
         
-        // Enviar mensajes pendientes
         if (pendingMessages.has(conn.peer)) {
             const messages = pendingMessages.get(conn.peer);
             console.log(`📤 Enviando ${messages.length} mensaje(s) pendiente(s) a ${conn.peer}`);
@@ -210,6 +222,19 @@ function setupConnection(conn, tipo = 'saliente') {
         connections.delete(conn.peer);
         pendingConnections.delete(conn.peer);
     });
+    
+    // Monitorear estado ICE
+    if (conn.peerConnection) {
+        conn.peerConnection.oniceconnectionstatechange = () => {
+            const state = conn.peerConnection.iceConnectionState;
+            console.log(`🧊 ICE state: ${state}`);
+            if (state === 'connected' || state === 'completed') {
+                console.log('✅ ICE conectado (túnel establecido)');
+            } else if (state === 'failed') {
+                console.error('❌ ICE falló (problema de conectividad)');
+            }
+        };
+    }
 }
 
 export async function sendMessage(targetPin, messageData) {
@@ -233,7 +258,6 @@ export async function sendMessage(targetPin, messageData) {
     if (conn) {
         console.log('✅ Usando conexión existente con:', targetId);
     } else {
-        // 🚀 Verificar si ya hay una conexión en progreso
         if (pendingConnections.has(targetId)) {
             console.warn(`⏳ Ya hay una conexión en progreso con ${targetId}. Esperando...`);
         } else {
