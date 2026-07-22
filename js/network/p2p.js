@@ -1,10 +1,10 @@
 // js/network/p2p.js - Módulo de red P2P usando WebRTC (PeerJS)
-// Versión con verificación de peers y manejo de errores mejorado
+// Versión con manejo de conexiones duplicadas y timeout extendido
 
 import { getIdentity } from '../core/storage.js';
 
 let peer = null;
-let connections = new Map();
+let connections = new Map(); // peerId -> DataConnection
 let messageHandlers = new Map();
 let pendingMessages = new Map();
 let isConnected = false;
@@ -13,7 +13,7 @@ let myPeerId = null;
 
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 2000;
-const CONNECTION_TIMEOUT = 15000; // 15 segundos para establecer conexión
+const CONNECTION_TIMEOUT = 30000; // 30 segundos para handshake
 
 export async function initP2PNetwork() {
     console.log('🌐 Inicializando red P2P con WebRTC (PeerJS)...');
@@ -41,7 +41,15 @@ async function connectWithRetry(basePeerId, attempt) {
         console.log(`🔄 Reintento ${attempt}/${MAX_RETRIES} con ID alternativo: ${peerId}`);
     }
     
-    peer = new window.Peer(peerId, { debug: 2 }); // Debug nivel 2 para más información
+    peer = new window.Peer(peerId, { 
+        debug: 2, // Nivel 2 para más detalles
+        config: {
+            iceServers: [
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:stun1.l.google.com:19302' }
+            ]
+        }
+    });
     
     return new Promise((resolve, reject) => {
         const timeout = setTimeout(() => {
@@ -74,23 +82,26 @@ async function connectWithRetry(basePeerId, attempt) {
             if (err.type === 'unavailable-id') {
                 peer.destroy();
                 if (attempt < MAX_RETRIES) {
-                    console.warn(`⚠️ ID "${peerId}" está ocupado. Reintentando...`);
                     setTimeout(() => {
                         connectWithRetry(basePeerId, attempt + 1).then(resolve).catch(reject);
                     }, RETRY_DELAY);
                 } else {
                     reject(new Error('ID ocupado después de varios intentos'));
                 }
-            } else if (err.type === 'network' || err.type === 'server-error') {
-                reject(err);
-            } else if (err.type === 'peer-unavailable') {
-                console.warn('⚠️ Peer no disponible (se reintentará al enviar)');
             }
         });
 
         peer.on('connection', (conn) => {
             console.log('🔗 Nueva conexión entrante de:', conn.peer);
-            setupConnection(conn);
+            
+            // 🚀 IMPORTANTE: Verificar si ya tenemos una conexión con este peer
+            if (connections.has(conn.peer)) {
+                console.warn(`⚠️ Ya existe una conexión con ${conn.peer}. Cerrando la duplicada...`);
+                conn.close();
+                return;
+            }
+            
+            setupConnection(conn, 'entrante');
         });
 
         peer.on('disconnected', () => {
@@ -107,45 +118,15 @@ async function connectWithRetry(basePeerId, attempt) {
     });
 }
 
-/**
- * Verifica si un peer existe en la red
- * @param {string} peerId - ID del peer a verificar
- * @returns {Promise<boolean>} true si el peer existe
- */
-async function checkPeerExists(peerId) {
-    return new Promise((resolve) => {
-        console.log(`🔍 Verificando si el peer ${peerId} existe...`);
-        
-        const conn = peer.connect(peerId, { reliable: true, serialization: 'json' });
-        
-        const timeout = setTimeout(() => {
-            console.warn(`⏱️ Timeout verificando peer ${peerId}`);
-            conn.close();
-            resolve(false);
-        }, 5000);
-        
-        conn.on('open', () => {
-            clearTimeout(timeout);
-            console.log(`✅ Peer ${peerId} existe y está conectado`);
-            conn.close(); // Cerrar la conexión de prueba
-            resolve(true);
-        });
-        
-        conn.on('error', (err) => {
-            clearTimeout(timeout);
-            console.warn(`❌ Peer ${peerId} no disponible:`, err.type);
-            resolve(false);
-        });
-    });
-}
-
-function setupConnection(conn) {
-    console.log(`🔧 Configurando conexión con ${conn.peer}...`);
+function setupConnection(conn, tipo = 'saliente') {
+    console.log(`🔧 Configurando conexión ${tipo} con ${conn.peer}...`);
+    console.log(`📊 Estado inicial: open=${conn.open}, peerConnection=${conn.peerConnection ? 'existe' : 'no existe'}`);
     
-    // Timeout para establecer la conexión
+    // Timeout extendido para el handshake
     const connectionTimeout = setTimeout(() => {
         if (!conn.open) {
-            console.error(`⏱️ Timeout: La conexión con ${conn.peer} no se estableció en ${CONNECTION_TIMEOUT/1000}s`);
+            console.error(`⏱️ TIMEOUT: La conexión ${tipo} con ${conn.peer} no se estableció en ${CONNECTION_TIMEOUT/1000}s`);
+            console.error(`📊 Estado al timeout: open=${conn.open}`);
             conn.close();
             connections.delete(conn.peer);
         }
@@ -154,20 +135,17 @@ function setupConnection(conn) {
     conn.on('open', () => {
         clearTimeout(connectionTimeout);
         console.log('✅ Conexión WebRTC establecida con:', conn.peer);
-        console.log('📊 Estado de conexión:', conn.open ? 'ABIERTA' : 'CERRADA');
+        console.log('📊 Estado de conexión: ABIERTA');
         connections.set(conn.peer, conn);
         
-        // Enviar mensajes pendientes si los hay
+        // Enviar mensajes pendientes
         if (pendingMessages.has(conn.peer)) {
             const messages = pendingMessages.get(conn.peer);
-            console.log(`📤 Encontrados ${messages.length} mensaje(s) pendiente(s) para ${conn.peer}`);
+            console.log(`📤 Enviando ${messages.length} mensaje(s) pendiente(s) a ${conn.peer}`);
             
-            let sentCount = 0;
             messages.forEach((payload, index) => {
                 try {
-                    console.log(`📤 Enviando mensaje pendiente ${index + 1}/${messages.length}...`);
                     conn.send(payload);
-                    sentCount++;
                     console.log(`✅ Mensaje pendiente ${index + 1} enviado`);
                 } catch (e) {
                     console.error(`❌ Error enviando mensaje pendiente ${index + 1}:`, e);
@@ -175,41 +153,27 @@ function setupConnection(conn) {
             });
             
             pendingMessages.delete(conn.peer);
-            console.log(`✅ ${sentCount}/${messages.length} mensajes pendientes enviados`);
-        } else {
-            console.log(`ℹ️ No hay mensajes pendientes para ${conn.peer}`);
         }
     });
 
     conn.on('data', async (data) => {
-        console.log('📨 Datos recibidos de', conn.peer, ':', data);
+        console.log('📨 Datos recibidos de', conn.peer);
         
         if (data.type === 'file-chunk') {
             const handler = messageHandlers.get('file-chunk');
-            if (handler) {
-                await handler(data);
-            } else {
-                console.warn('⚠️ No hay handler para file-chunk');
-            }
+            if (handler) await handler(data);
         } else if (data.type === 'file-metadata') {
             const handler = messageHandlers.get(myPin);
-            if (handler) {
-                await handler(data);
-            } else {
-                console.warn('⚠️ No hay handler para file-metadata');
-            }
+            if (handler) await handler(data);
         } else {
             const handler = messageHandlers.get(myPin);
-            if (handler) {
-                await handler(data);
-            } else {
-                console.warn('⚠️ No hay handler para mi PIN:', myPin);
-            }
+            if (handler) await handler(data);
         }
     });
 
     conn.on('close', () => {
         console.log('🔌 Conexión cerrada con:', conn.peer);
+        clearTimeout(connectionTimeout);
         connections.delete(conn.peer);
     });
     
@@ -218,6 +182,16 @@ function setupConnection(conn) {
         clearTimeout(connectionTimeout);
         connections.delete(conn.peer);
     });
+    
+    // Monitorear cambios de estado de la conexión ICE
+    if (conn.peerConnection) {
+        conn.peerConnection.oniceconnectionstatechange = () => {
+            console.log(`🧊 ICE state change: ${conn.peerConnection.iceConnectionState}`);
+        };
+        conn.peerConnection.onsignalingstatechange = () => {
+            console.log(`📡 Signaling state change: ${conn.peerConnection.signalingState}`);
+        };
+    }
 }
 
 export async function sendMessage(targetPin, messageData) {
@@ -236,30 +210,18 @@ export async function sendMessage(targetPin, messageData) {
 
     console.log(`📤 Intentando enviar mensaje a ${targetPin} (ID: ${targetId})`);
 
-    // 🚀 NUEVO: Verificar si el peer existe antes de intentar conectar
-    const peerExists = await checkPeerExists(targetId);
-    
-    if (!peerExists) {
-        console.error(`❌ El peer ${targetId} NO existe o no está en línea`);
-        console.error(`💡 Posibles causas:`);
-        console.error(`   1. El destinatario no tiene la app abierta`);
-        console.error(`   2. El destinatario tiene un PIN diferente`);
-        console.error(`   3. Problemas de conectividad (firewall/NAT)`);
-        throw new Error('Destinatario no disponible');
-    }
-
+    // 🚀 Verificar si YA tenemos una conexión con este peer (entrante o saliente)
     let conn = connections.get(targetId);
     
-    if (!conn) {
-        console.log('🔄 No hay conexión existente. Iniciando nueva conexión WebRTC hacia:', targetId);
-        conn = peer.connect(targetId, { reliable: true, serialization: 'json' });
-        connections.set(targetId, conn);
-        setupConnection(conn);
-        
-        console.log('📊 Estado inmediato de la conexión:', conn.open ? 'ABIERTA' : 'CERRADA');
-    } else {
+    if (conn) {
         console.log('✅ Usando conexión existente con:', targetId);
         console.log('📊 Estado de la conexión:', conn.open ? 'ABIERTA' : 'CERRADA');
+    } else {
+        console.log('🔄 No hay conexión existente. Iniciando nueva conexión WebRTC hacia:', targetId);
+        conn = peer.connect(targetId, { reliable: true, serialization: 'json' });
+        setupConnection(conn, 'saliente');
+        
+        console.log('📊 Estado inmediato de la conexión:', conn.open ? 'ABIERTA' : 'CERRADA');
     }
 
     if (conn.open) {
@@ -273,6 +235,7 @@ export async function sendMessage(targetPin, messageData) {
         console.warn(`⏳ Conexión con ${targetPin} aún no está abierta. Guardando en cola...`);
         if (!pendingMessages.has(targetId)) {
             pendingMessages.set(targetId, []);
+            console.log(`📝 Creada nueva cola de pendientes para ${targetId}`);
         }
         pendingMessages.get(targetId).push(payload);
         console.log(`📝 Mensaje agregado a la cola. Total en cola: ${pendingMessages.get(targetId).length}`);
