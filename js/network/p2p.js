@@ -1,14 +1,12 @@
 // js/network/p2p.js - Módulo de red P2P usando WebRTC (PeerJS)
-// PeerJS usa el servidor público gratuito SOLO para señalización inicial.
-// Los mensajes viajan DIRECTAMENTE entre navegadores (P2P real).
 
 import { getIdentity } from '../core/storage.js';
 
-// Variables globales del módulo
 let peer = null;
 let connections = new Map();
 let messageHandlers = new Map();
 let isConnected = false;
+let myPin = null; // PIN del usuario local
 
 /**
  * Inicializa la conexión P2P con PeerJS
@@ -21,10 +19,14 @@ export async function initP2PNetwork() {
         throw new Error('No se encontró identidad del usuario');
     }
 
+    // Guardar el PIN del usuario local
+    myPin = identity.pin.replace(/-/g, '').toUpperCase();
+    
     // Usamos el PIN sin guiones y en minúsculas como ID único de Peer
     const peerId = identity.pin.replace(/-/g, '').toLowerCase();
     
     console.log('🆔 ID WebRTC asignado:', peerId);
+    console.log('📝 Mi PIN para handlers:', myPin);
     
     // Inicializar PeerJS
     peer = new window.Peer(peerId, {
@@ -80,14 +82,14 @@ function setupConnection(conn) {
     conn.on('data', (data) => {
         console.log('📨 Mensaje recibido vía WebRTC P2P:', data);
         
-        // Buscar el handler usando el PIN SIN guiones (formato consistente)
-        const senderPinClean = data.senderPin.replace(/-/g, '');
-        const handler = messageHandlers.get(senderPinClean);
+        // IMPORTANTE: Buscar el handler usando MI PIN (el destinatario), no el del remitente
+        // Como solo tenemos un handler (el nuestro), siempre buscamos por myPin
+        const handler = messageHandlers.get(myPin);
         
         if (handler) {
             handler(data);
         } else {
-            console.warn('⚠️ No hay handler registrado para el PIN:', senderPinClean);
+            console.warn('⚠️ No hay handler registrado para mi PIN:', myPin);
             console.warn('Handlers disponibles:', Array.from(messageHandlers.keys()));
         }
     });
@@ -158,8 +160,8 @@ export async function sendMessage(targetPin, messageData) {
  * Registra un handler para mensajes entrantes
  */
 export function registerMessageHandler(pin, handler) {
-    // IMPORTANTE: Guardar el PIN SIN guiones para consistencia
-    const cleanPin = pin.replace(/-/g, '');
+    // Guardar el PIN SIN guiones y en MAYÚSCULAS para consistencia
+    const cleanPin = pin.replace(/-/g, '').toUpperCase();
     messageHandlers.set(cleanPin, handler);
     console.log(`📝 Handler registrado para PIN: ${cleanPin}`);
 }
