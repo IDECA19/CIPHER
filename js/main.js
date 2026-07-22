@@ -1,17 +1,19 @@
-// js/main.js - Punto de entrada de la aplicación (Fase 1.3 + P2P)
+// js/main.js - Punto de entrada de la aplicación (Fase 1.3 + P2P + Responsive)
 
 import { APP_CONFIG, DEVELOPER_PIN } from './config.js';
 import { initDatabase, getIdentity, saveIdentity } from './core/storage.js';
 import { generateNewIdentity } from './core/identity.js';
 import { addOrUpdateContact } from './services/contacts.js';
 import { renderChatList } from './ui/chat_list.js';
-import { openChatWindow, handleSendMessage } from './ui/chat_window.js';
+import { openChatWindow, handleSendMessage, closeChatWindow } from './ui/chat_window.js';
 import { openContactsModal } from './ui/contacts_modal.js';
 import { initP2PNetwork, registerMessageHandler } from './network/p2p.js';
 import { receiveP2PMessage } from './services/messaging.js';
 
 /**
  * Muestra un toast de notificación
+ * @param {string} message - Mensaje a mostrar
+ * @param {string} type - Tipo de toast ('info', 'success', 'warning', 'error')
  */
 function showToast(message, type = 'info') {
     const container = document.getElementById('toast-container');
@@ -26,24 +28,38 @@ function showToast(message, type = 'info') {
     }, 3000);
 }
 
+/**
+ * Actualiza el estado del splash screen
+ * @param {string} message - Mensaje de estado
+ */
 function updateSplashStatus(message) {
     const status = document.getElementById('splash-status');
     if (status) status.textContent = message;
 }
 
+/**
+ * Oculta el splash y muestra la app
+ */
 function showApp() {
     document.getElementById('splash-screen').classList.add('hidden');
     document.getElementById('app').classList.remove('hidden');
 }
 
+/**
+ * Muestra el PIN del usuario en la UI
+ * @param {string} pinFormatted - PIN formateado
+ */
 function displayUserPin(pinFormatted) {
     document.querySelectorAll('#my-pin, #my-pin-display').forEach(el => {
         if (el) el.textContent = pinFormatted;
     });
 }
 
+/**
+ * Configura todos los event listeners de la UI
+ */
 function setupEventListeners() {
-    // Copiar PIN
+    // Copiar PIN al portapapeles
     document.getElementById('btn-copy-pin')?.addEventListener('click', async () => {
         const pin = document.getElementById('my-pin-display')?.textContent;
         if (pin && pin !== '---') {
@@ -73,20 +89,20 @@ function setupEventListeners() {
         }
     });
 
-    // Botón Contactos
+    // Botón Contactos (Abre el modal visual)
     document.getElementById('btn-contacts')?.addEventListener('click', async () => {
         await openContactsModal();
     });
 
-    // Botón Ajustes
+    // Botón Ajustes (placeholder)
     document.getElementById('btn-settings')?.addEventListener('click', () => {
         showToast('Ajustes - Próximamente en Fase 2', 'info');
     });
 
-    // Enviar mensaje
+    // Enviar mensaje con botón
     document.getElementById('btn-send')?.addEventListener('click', handleSendMessage);
 
-    // Enter para enviar
+    // Enviar mensaje con Enter (sin Shift)
     document.getElementById('message-input')?.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
@@ -94,18 +110,26 @@ function setupEventListeners() {
         }
     });
 
-    // Escuchar actualizaciones de chat
+    // Escuchar actualizaciones de chat para refrescar la lista lateral
     window.addEventListener('chat-updated', async () => {
         await renderChatList(openChatWindow);
     });
 
-    // Escuchar evento para abrir chat desde el modal
+    // Escuchar evento para abrir chat desde el modal de contactos
     window.addEventListener('open-chat', (e) => {
         const { pin, alias } = e.detail;
         openChatWindow(pin, alias);
     });
+
+    // Botón de regreso (solo visible en móvil)
+    document.getElementById('btn-back')?.addEventListener('click', () => {
+        closeChatWindow();
+    });
 }
 
+/**
+ * Inicializa la aplicación
+ */
 async function initApp() {
     console.log(`🚀 Iniciando ${APP_CONFIG.name} v${APP_CONFIG.version}`);
     console.log(`📞 PIN del desarrollador: ${DEVELOPER_PIN}`);
@@ -120,19 +144,23 @@ async function initApp() {
         let identity = await getIdentity();
         
         if (!identity) {
+            // Primera vez: generar nueva identidad
             updateSplashStatus('Generando tu identidad única...');
             identity = await generateNewIdentity();
             await saveIdentity(identity);
+            
+            // Agregar al desarrollador como contacto por defecto
             await addOrUpdateContact(DEVELOPER_PIN, "Soporte CipherChat");
+            
             showToast(`¡Bienvenido! Tu PIN es: ${identity.pinFormatted}`, 'success');
         } else {
             console.log(`✅ Identidad existente: ${identity.pinFormatted}`);
         }
         
-        // Paso 3: Mostrar PIN
+        // Paso 3: Mostrar PIN en la UI
         displayUserPin(identity.pinFormatted);
         
-        // Paso 4: Configurar listeners
+        // Paso 4: Configurar event listeners
         setupEventListeners();
         
         // Paso 5: Cargar lista de chats
@@ -145,7 +173,7 @@ async function initApp() {
             await initP2PNetwork();
             
             // Registrar handler para mensajes entrantes
-            // IMPORTANTE: El PIN se limpia de guiones dentro de registerMessageHandler
+            // El PIN se limpia de guiones dentro de registerMessageHandler
             registerMessageHandler(identity.pin, receiveP2PMessage);
             
             showToast('Conectado a la red P2P', 'success');
