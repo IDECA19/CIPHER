@@ -1,5 +1,5 @@
 // js/network/p2p.js - Módulo de red P2P usando WebRTC (PeerJS)
-// Versión corregida: busca handler por MI PIN, no por el del remitente
+// Soporta mensajes de texto y archivos fragmentados (chunks)
 
 import { getIdentity } from '../core/storage.js';
 
@@ -74,7 +74,6 @@ export async function initP2PNetwork() {
 /**
  * Configura los event listeners de una conexión WebRTC
  */
-
 function setupConnection(conn) {
     conn.on('open', () => {
         console.log('✅ Conexión WebRTC establecida con:', conn.peer);
@@ -86,9 +85,14 @@ function setupConnection(conn) {
         if (data.type === 'file-chunk') {
             // Es un chunk de archivo
             console.log(`📥 Chunk de archivo recibido: ${data.chunkIndex + 1}/${data.totalChunks}`);
-            
-            // Llamar al handler de archivos
             const handler = messageHandlers.get('file-chunk');
+            if (handler) {
+                await handler(data);
+            }
+        } else if (data.type === 'file-metadata') {
+            // Son metadatos de archivo
+            console.log('📥 Metadatos de archivo recibidos:', data.metadata?.name);
+            const handler = messageHandlers.get(myPin);
             if (handler) {
                 await handler(data);
             }
@@ -97,9 +101,10 @@ function setupConnection(conn) {
             console.log('📨 Mensaje recibido vía WebRTC P2P:', data);
             const handler = messageHandlers.get(myPin);
             if (handler) {
-                handler(data);
+                await handler(data);
             } else {
                 console.warn('⚠️ No hay handler registrado para mi PIN:', myPin);
+                console.warn('Handlers disponibles:', Array.from(messageHandlers.keys()));
             }
         }
     });
@@ -114,8 +119,9 @@ function setupConnection(conn) {
         connections.delete(conn.peer);
     });
 }
+
 /**
- * Envía un mensaje o chunk a un peer específico
+ * Envía un mensaje a un peer específico
  */
 export async function sendMessage(targetPin, messageData) {
     if (!isConnected || !peer) {
@@ -142,6 +148,7 @@ export async function sendMessage(targetPin, messageData) {
         connections.set(targetId, conn);
         setupConnection(conn);
         
+        // Esperar a que la conexión se abra
         await new Promise((resolve) => {
             const openHandler = () => {
                 conn.off('open', openHandler);
@@ -213,6 +220,14 @@ export function registerMessageHandler(pin, handler) {
     const cleanPin = pin.replace(/-/g, '').toUpperCase();
     messageHandlers.set(cleanPin, handler);
     console.log(`📝 Handler registrado para PIN: ${cleanPin}`);
+}
+
+/**
+ * Registra un handler especial para chunks de archivos
+ */
+export function registerFileChunkHandler(handler) {
+    messageHandlers.set('file-chunk', handler);
+    console.log('📝 Handler de chunks de archivos registrado');
 }
 
 export function getConnectionStatus() {
