@@ -1,6 +1,16 @@
 // js/network/p2p.js - Módulo de red P2P usando libp2p
 
-import { NETWORK_CONFIG, CRYPTO_CONFIG } from '../config.js';
+import { createLibp2p } from 'libp2p';
+import { WebRTC } from '@chainsafe/libp2p-webrtc';
+import { WebSockets } from '@libp2p/websockets';
+import { KadDHT } from '@libp2p/kad-dht';
+import { GossipSub } from '@chainsafe/libp2p-gossipsub';
+import { noise } from '@chainsafe/libp2p-noise';
+import { yamux } from '@chainsafe/libp2p-yamux';
+import { bootstrap } from '@libp2p/bootstrap';
+import { identify } from '@libp2p/identify';
+
+import { NETWORK_CONFIG } from '../config.js';
 import { getIdentity } from '../core/storage.js';
 
 // Variables globales del módulo
@@ -17,17 +27,6 @@ export async function initP2PNetwork() {
     console.log('🌐 Inicializando red P2P...');
     
     try {
-        // Importar libp2p dinámicamente (desde CDN en index.html)
-        const { createLibp2p } = window.libp2p;
-        const { WebRTC } = window['@chainsafe/libp2p-webrtc'];
-        const { WebSockets } = window['@libp2p/websockets'];
-        const { KadDHT } = window['@libp2p/kad-dht'];
-        const { GossipSub } = window['@chainsafe/libp2p-gossipsub'];
-        const { noise } = window['@chainsafe/libp2p-noise'];
-        const { yamux } = window['@chainsafe/libp2p-yamux'];
-        const { bootstrap } = window['@libp2p/bootstrap'];
-        const { identify } = window['@libp2p/identify'];
-
         // Obtener identidad del usuario
         const identity = await getIdentity();
         if (!identity) {
