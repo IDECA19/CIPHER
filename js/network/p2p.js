@@ -1,5 +1,5 @@
 // js/network/p2p.js - Módulo de red P2P usando WebRTC (PeerJS)
-// Versión con logging mejorado y verificación de envío de pendientes
+// Versión con verificación de peers y manejo de errores mejorado
 
 import { getIdentity } from '../core/storage.js';
 
@@ -13,6 +13,7 @@ let myPeerId = null;
 
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 2000;
+const CONNECTION_TIMEOUT = 15000; // 15 segundos para establecer conexión
 
 export async function initP2PNetwork() {
     console.log('🌐 Inicializando red P2P con WebRTC (PeerJS)...');
@@ -40,7 +41,7 @@ async function connectWithRetry(basePeerId, attempt) {
         console.log(`🔄 Reintento ${attempt}/${MAX_RETRIES} con ID alternativo: ${peerId}`);
     }
     
-    peer = new window.Peer(peerId, { debug: 1 });
+    peer = new window.Peer(peerId, { debug: 2 }); // Debug nivel 2 para más información
     
     return new Promise((resolve, reject) => {
         const timeout = setTimeout(() => {
@@ -82,6 +83,8 @@ async function connectWithRetry(basePeerId, attempt) {
                 }
             } else if (err.type === 'network' || err.type === 'server-error') {
                 reject(err);
+            } else if (err.type === 'peer-unavailable') {
+                console.warn('⚠️ Peer no disponible (se reintentará al enviar)');
             }
         });
 
@@ -104,19 +107,60 @@ async function connectWithRetry(basePeerId, attempt) {
     });
 }
 
+/**
+ * Verifica si un peer existe en la red
+ * @param {string} peerId - ID del peer a verificar
+ * @returns {Promise<boolean>} true si el peer existe
+ */
+async function checkPeerExists(peerId) {
+    return new Promise((resolve) => {
+        console.log(`🔍 Verificando si el peer ${peerId} existe...`);
+        
+        const conn = peer.connect(peerId, { reliable: true, serialization: 'json' });
+        
+        const timeout = setTimeout(() => {
+            console.warn(`⏱️ Timeout verificando peer ${peerId}`);
+            conn.close();
+            resolve(false);
+        }, 5000);
+        
+        conn.on('open', () => {
+            clearTimeout(timeout);
+            console.log(`✅ Peer ${peerId} existe y está conectado`);
+            conn.close(); // Cerrar la conexión de prueba
+            resolve(true);
+        });
+        
+        conn.on('error', (err) => {
+            clearTimeout(timeout);
+            console.warn(`❌ Peer ${peerId} no disponible:`, err.type);
+            resolve(false);
+        });
+    });
+}
+
 function setupConnection(conn) {
     console.log(`🔧 Configurando conexión con ${conn.peer}...`);
     
+    // Timeout para establecer la conexión
+    const connectionTimeout = setTimeout(() => {
+        if (!conn.open) {
+            console.error(`⏱️ Timeout: La conexión con ${conn.peer} no se estableció en ${CONNECTION_TIMEOUT/1000}s`);
+            conn.close();
+            connections.delete(conn.peer);
+        }
+    }, CONNECTION_TIMEOUT);
+    
     conn.on('open', () => {
+        clearTimeout(connectionTimeout);
         console.log('✅ Conexión WebRTC establecida con:', conn.peer);
         console.log('📊 Estado de conexión:', conn.open ? 'ABIERTA' : 'CERRADA');
         connections.set(conn.peer, conn);
         
-        // 🚀 Verificar y enviar mensajes pendientes
+        // Enviar mensajes pendientes si los hay
         if (pendingMessages.has(conn.peer)) {
             const messages = pendingMessages.get(conn.peer);
             console.log(`📤 Encontrados ${messages.length} mensaje(s) pendiente(s) para ${conn.peer}`);
-            console.log('📋 Mensajes pendientes:', messages);
             
             let sentCount = 0;
             messages.forEach((payload, index) => {
@@ -143,7 +187,6 @@ function setupConnection(conn) {
         if (data.type === 'file-chunk') {
             const handler = messageHandlers.get('file-chunk');
             if (handler) {
-                console.log('📥 Procesando chunk de archivo...');
                 await handler(data);
             } else {
                 console.warn('⚠️ No hay handler para file-chunk');
@@ -151,7 +194,6 @@ function setupConnection(conn) {
         } else if (data.type === 'file-metadata') {
             const handler = messageHandlers.get(myPin);
             if (handler) {
-                console.log('📥 Procesando metadatos de archivo...');
                 await handler(data);
             } else {
                 console.warn('⚠️ No hay handler para file-metadata');
@@ -159,11 +201,9 @@ function setupConnection(conn) {
         } else {
             const handler = messageHandlers.get(myPin);
             if (handler) {
-                console.log('📨 Procesando mensaje de texto...');
                 await handler(data);
             } else {
                 console.warn('⚠️ No hay handler para mi PIN:', myPin);
-                console.warn('Handlers disponibles:', Array.from(messageHandlers.keys()));
             }
         }
     });
@@ -175,6 +215,7 @@ function setupConnection(conn) {
     
     conn.on('error', (err) => {
         console.error('❌ Error en conexión WebRTC con', conn.peer, ':', err);
+        clearTimeout(connectionTimeout);
         connections.delete(conn.peer);
     });
 }
@@ -195,6 +236,18 @@ export async function sendMessage(targetPin, messageData) {
 
     console.log(`📤 Intentando enviar mensaje a ${targetPin} (ID: ${targetId})`);
 
+    // 🚀 NUEVO: Verificar si el peer existe antes de intentar conectar
+    const peerExists = await checkPeerExists(targetId);
+    
+    if (!peerExists) {
+        console.error(`❌ El peer ${targetId} NO existe o no está en línea`);
+        console.error(`💡 Posibles causas:`);
+        console.error(`   1. El destinatario no tiene la app abierta`);
+        console.error(`   2. El destinatario tiene un PIN diferente`);
+        console.error(`   3. Problemas de conectividad (firewall/NAT)`);
+        throw new Error('Destinatario no disponible');
+    }
+
     let conn = connections.get(targetId);
     
     if (!conn) {
@@ -203,7 +256,6 @@ export async function sendMessage(targetPin, messageData) {
         connections.set(targetId, conn);
         setupConnection(conn);
         
-        // Verificar estado inmediato
         console.log('📊 Estado inmediato de la conexión:', conn.open ? 'ABIERTA' : 'CERRADA');
     } else {
         console.log('✅ Usando conexión existente con:', targetId);
@@ -221,11 +273,9 @@ export async function sendMessage(targetPin, messageData) {
         console.warn(`⏳ Conexión con ${targetPin} aún no está abierta. Guardando en cola...`);
         if (!pendingMessages.has(targetId)) {
             pendingMessages.set(targetId, []);
-            console.log(`📝 Creada nueva cola de pendientes para ${targetId}`);
         }
         pendingMessages.get(targetId).push(payload);
         console.log(`📝 Mensaje agregado a la cola. Total en cola: ${pendingMessages.get(targetId).length}`);
-        console.log('📋 Cola actual de pendientes:', pendingMessages);
         
         return { status: 'pending', message: 'Mensaje en cola de envío' };
     }
