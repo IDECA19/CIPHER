@@ -74,24 +74,33 @@ export async function initP2PNetwork() {
 /**
  * Configura los event listeners de una conexión WebRTC
  */
+
 function setupConnection(conn) {
     conn.on('open', () => {
         console.log('✅ Conexión WebRTC establecida con:', conn.peer);
         connections.set(conn.peer, conn);
     });
 
-    conn.on('data', (data) => {
-        console.log('📨 Mensaje recibido vía WebRTC P2P:', data);
-        
-        // CORRECCIÓN CLAVE: Buscar el handler usando MI PIN (el destinatario)
-        // NO usar data.senderPin, sino myPin
-        const handler = messageHandlers.get(myPin);
-        
-        if (handler) {
-            handler(data);
+    conn.on('data', async (data) => {
+        // Determinar el tipo de mensaje
+        if (data.type === 'file-chunk') {
+            // Es un chunk de archivo
+            console.log(`📥 Chunk de archivo recibido: ${data.chunkIndex + 1}/${data.totalChunks}`);
+            
+            // Llamar al handler de archivos
+            const handler = messageHandlers.get('file-chunk');
+            if (handler) {
+                await handler(data);
+            }
         } else {
-            console.warn('⚠️ No hay handler registrado para mi PIN:', myPin);
-            console.warn('Handlers disponibles:', Array.from(messageHandlers.keys()));
+            // Es un mensaje de texto normal
+            console.log('📨 Mensaje recibido vía WebRTC P2P:', data);
+            const handler = messageHandlers.get(myPin);
+            if (handler) {
+                handler(data);
+            } else {
+                console.warn('⚠️ No hay handler registrado para mi PIN:', myPin);
+            }
         }
     });
 
@@ -105,7 +114,6 @@ function setupConnection(conn) {
         connections.delete(conn.peer);
     });
 }
-
 /**
  * Envía un mensaje a un peer específico
  */
