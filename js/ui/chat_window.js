@@ -1,8 +1,11 @@
 // js/ui/chat_window.js - Gestión de la ventana de conversación
 
-import { saveMessage, getChatMessages, sendP2PMessage } from '../services/messaging.js';
+import { getChatMessages, sendP2PMessage, sendP2PFile, downloadReceivedFile } from '../services/messaging.js';
 import { getIdentity } from '../core/storage.js';
 import { formatMessageTime } from '../utils/formatter.js';
+import { formatFileSize, getFileIcon, createFileUrl } from '../services/files.js';
+import { getFromStore } from '../core/storage.js';
+import { STORAGE_CONFIG } from '../config.js';
 
 let currentChatId = null;
 
@@ -17,8 +20,6 @@ export async function openChatWindow(pin, alias) {
     
     document.getElementById('chat-empty').classList.add('hidden');
     document.getElementById('chat-window').classList.remove('hidden');
-    
-    // IMPORTANTE: Agregar clase para modo móvil
     document.getElementById('app').classList.add('chat-open');
     
     await loadMessages(pin);
@@ -26,7 +27,7 @@ export async function openChatWindow(pin, alias) {
 }
 
 /**
- * Cierra la ventana de chat y vuelve a la lista (solo móvil)
+ * Cierra la ventana de chat
  */
 export function closeChatWindow() {
     currentChatId = null;
@@ -44,37 +45,102 @@ async function loadMessages(chatId) {
     
     const messages = await getChatMessages(chatId);
     
-    messages.forEach(msg => {
-        appendMessageToDOM(msg);
-    });
+    for (const msg of messages) {
+        await appendMessageToDOM(msg);
+    }
     
     scrollToBottom();
 }
 
 /**
- * Agrega un mensaje al DOM
+ * Agrega un mensaje al DOM (soporta texto y archivos)
  */
-function appendMessageToDOM(msg) {
+async function appendMessageToDOM(msg) {
     const messagesContainer = document.getElementById('chat-messages');
     const messageDiv = document.createElement('div');
-    messageDiv.className = `message ${msg.isSent ? 'sent' : 'received'}`;
+    messageDiv.className = `message ${msg.isSent ? 'sent' : 'received'} ${msg.type || 'text'}`;
+    messageDiv.dataset.messageId = msg.id;
     
     const timeStr = formatMessageTime(msg.timestamp);
     const statusIcon = msg.isSent ? '✓✓' : '';
     
-    messageDiv.innerHTML = `
-        <div class="message__text">${escapeHtml(msg.text)}</div>
-        <div class="message__meta">
-            <span>${timeStr}</span>
-            ${msg.isSent ? `<span class="message__status">${statusIcon}</span>` : ''}
-        </div>
-    `;
+    let contentHtml = '';
     
+    if (msg.type === 'file') {
+        // Renderizar archivo adjunto
+        contentHtml = await renderFileAttachment(msg);
+    } else {
+        // Renderizar texto
+        contentHtml = `
+            <div class="message__text">${escapeHtml(msg.text)}</div>
+            <div class="message__meta">
+                <span>${timeStr}</span>
+                ${msg.isSent ? `<span class="message__status">${statusIcon}</span>` : ''}
+            </div>
+        `;
+    }
+    
+    messageDiv.innerHTML = contentHtml;
     messagesContainer.appendChild(messageDiv);
 }
 
 /**
- * Maneja el envío de un nuevo mensaje
+ * Renderiza un archivo adjunto en el chat
+ */
+async function renderFileAttachment(msg) {
+    const fileRecord = await getFromStore(STORAGE_CONFIG.stores.files, msg.fileId);
+    const metadata = fileRecord?.metadata || {
+        name: msg.fileName,
+        size: msg.fileSize,
+        mimeType: msg.mimeType
+    };
+    
+    const icon = getFileIcon(metadata.mimeType);
+    const size = formatFileSize(metadata.size);
+    const timeStr = formatMessageTime(msg.timestamp);
+    
+    let previewHtml = '';
+    
+    // Si es una imagen y tenemos el archivo, mostrar preview
+    if (metadata.mimeType && metadata.mimeType.startsWith('image/') && fileRecord) {
+        try {
+            const { reconstructAndDecryptFile } = await import('../services/files.js');
+            const blob = await reconstructAndDecryptFile(msg.fileId, fileRecord.metadata);
+            const url = createFileUrl(blob);
+            previewHtml = `
+                <div class="file-attachment__preview">
+                    <img src="${url}" alt="${escapeHtml(metadata.name)}" onclick="window.open('${url}', '_blank')">
+                </div>
+            `;
+        } catch (err) {
+            console.warn('No se pudo generar preview de imagen:', err);
+            previewHtml = `<div class="file-attachment__preview file-attachment__preview--icon">${icon}</div>`;
+        }
+    } else {
+        previewHtml = `<div class="file-attachment__preview file-attachment__preview--icon">${icon}</div>`;
+    }
+    
+    return `
+        <div class="file-attachment">
+            ${previewHtml}
+            <div class="file-attachment__info">
+                <div class="file-attachment__icon">${icon}</div>
+                <div class="file-attachment__details">
+                    <div class="file-attachment__name">${escapeHtml(metadata.name)}</div>
+                    <div class="file-attachment__size">${size}</div>
+                </div>
+                <button class="file-attachment__download" data-file-id="${msg.fileId}" title="Descargar">⬇️</button>
+            </div>
+            <div class="message__meta">
+                <span>${timeStr}</span>
+                ${msg.isSent ? '<span class="message__status">✓✓</span>' : ''}
+            </div>
+        </div>
+    `;
+}
+
+/**
+ * Maneja el envío de un mensaje de texto
  */
 export async function handleSendMessage() {
     if (!currentChatId) return;
@@ -85,22 +151,59 @@ export async function handleSendMessage() {
     if (!text) return;
     
     const identity = await getIdentity();
-    
-    // 1. Enviar mensaje (local + P2P)
     await sendP2PMessage(currentChatId, text, identity.pin);
     
-    // 2. Limpiar input
     input.value = '';
     input.style.height = 'auto';
     
-    // 3. Renderizar el nuevo mensaje
     const messages = await getChatMessages(currentChatId);
     const newMsg = messages[messages.length - 1];
-    appendMessageToDOM(newMsg);
+    await appendMessageToDOM(newMsg);
     scrollToBottom();
     
-    // 4. Actualizar la lista lateral
     window.dispatchEvent(new CustomEvent('chat-updated'));
+}
+
+/**
+ * Maneja el envío de un archivo
+ */
+export async function handleSendFile(file) {
+    if (!currentChatId) return;
+    
+    const identity = await getIdentity();
+    const overlay = document.getElementById('file-progress-overlay');
+    const nameEl = document.getElementById('file-progress-name');
+    const fillEl = document.getElementById('file-progress-fill');
+    const percentEl = document.getElementById('file-progress-percent');
+    
+    // Mostrar overlay de progreso
+    nameEl.textContent = `Enviando: ${file.name}`;
+    fillEl.style.width = '0%';
+    percentEl.textContent = '0%';
+    overlay.classList.remove('hidden');
+    
+    try {
+        const message = await sendP2PFile(currentChatId, file, identity.pin, (progress) => {
+            fillEl.style.width = `${progress}%`;
+            percentEl.textContent = `${progress}%`;
+        });
+        
+        // Renderizar el mensaje
+        await appendMessageToDOM(message);
+        scrollToBottom();
+        
+        window.dispatchEvent(new CustomEvent('chat-updated'));
+        
+        // Mostrar éxito
+        setTimeout(() => {
+            overlay.classList.add('hidden');
+        }, 500);
+        
+    } catch (error) {
+        console.error('Error enviando archivo:', error);
+        overlay.classList.add('hidden');
+        alert('Error al enviar el archivo: ' + error.message);
+    }
 }
 
 /**
@@ -109,14 +212,31 @@ export async function handleSendMessage() {
 window.addEventListener('message-received', async (e) => {
     const { chatId, message } = e.detail;
     
-    // Si el chat actual está abierto, mostrar el mensaje
     if (currentChatId === chatId) {
-        appendMessageToDOM(message);
+        await appendMessageToDOM(message);
         scrollToBottom();
     }
     
-    // Actualizar lista de chats
     window.dispatchEvent(new CustomEvent('chat-updated'));
+});
+
+/**
+ * Maneja la descarga de archivos
+ */
+document.addEventListener('click', async (e) => {
+    if (e.target.classList.contains('file-attachment__download')) {
+        const fileId = e.target.dataset.fileId;
+        const fileRecord = await getFromStore(STORAGE_CONFIG.stores.files, fileId);
+        
+        if (fileRecord && fileRecord.metadata) {
+            try {
+                await downloadReceivedFile(fileId, fileRecord.metadata);
+            } catch (err) {
+                console.error('Error descargando archivo:', err);
+                alert('Error al descargar el archivo');
+            }
+        }
+    }
 });
 
 function scrollToBottom() {
@@ -125,6 +245,7 @@ function scrollToBottom() {
 }
 
 function escapeHtml(text) {
+    if (!text) return '';
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
@@ -139,4 +260,23 @@ document.getElementById('message-input')?.addEventListener('input', function() {
 // Botón de regreso (móvil)
 document.getElementById('btn-back')?.addEventListener('click', () => {
     closeChatWindow();
+});
+
+// Botón de adjuntar archivo
+document.getElementById('btn-attach')?.addEventListener('click', () => {
+    document.getElementById('file-input').click();
+});
+
+// Cuando se selecciona un archivo
+document.getElementById('file-input')?.addEventListener('change', async (e) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    
+    // Enviar cada archivo seleccionado
+    for (const file of files) {
+        await handleSendFile(file);
+    }
+    
+    // Limpiar el input para poder seleccionar el mismo archivo otra vez
+    e.target.value = '';
 });
