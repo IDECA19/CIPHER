@@ -1,15 +1,17 @@
 // js/network/p2p.js - Módulo de red P2P usando WebRTC (PeerJS)
+// Versión con cola de mensajes pendientes para handshakes lentos
 
 import { getIdentity } from '../core/storage.js';
 
 let peer = null;
-let connections = new Map(); // peerId -> DataConnection
-let messageHandlers = new Map(); // pin -> handler function
+let connections = new Map();
+let messageHandlers = new Map();
+let pendingMessages = new Map(); // 🚀 NUEVO: targetId -> Array of payloads
 let isConnected = false;
+let myPin = null;
 
 /**
- * Inicializa la conexión P2P
- * @returns {Promise<Object>} Instancia de Peer
+ * Inicializa la conexión P2P con PeerJS
  */
 export async function initP2PNetwork() {
     console.log('🌐 Inicializando red P2P con WebRTC (PeerJS)...');
@@ -19,79 +21,82 @@ export async function initP2PNetwork() {
         throw new Error('No se encontró identidad del usuario');
     }
 
-    // Usamos el PIN sin guiones y en minúsculas como ID de Peer
+    myPin = identity.pin.replace(/-/g, '').toUpperCase();
     const peerId = identity.pin.replace(/-/g, '').toLowerCase();
     
-    // Inicializar PeerJS (usa el servidor público gratuito SOLO para señalización)
-    // Los mensajes NUNCA pasan por este servidor, es 100% P2P WebRTC directo
-    peer = new window.Peer(peerId, {
-        debug: 1 // 0 = off, 1 = errors, 2 = warnings, 3 = all
-    });
+    console.log('🆔 ID WebRTC asignado:', peerId);
+    console.log('📝 Mi PIN para handlers:', myPin);
+    
+    peer = new window.Peer(peerId, { debug: 1 });
 
     return new Promise((resolve, reject) => {
         peer.on('open', (id) => {
-            console.log('✅ Nodo P2P iniciado. ID WebRTC:', id);
+            console.log('✅ Nodo P2P iniciado y registrado. ID:', id);
             isConnected = true;
             resolve(peer);
         });
 
         peer.on('error', (err) => {
-            console.error('❌ Error en PeerJS:', err);
+            console.error('❌ Error en PeerJS:', err.type, err.message);
             if (err.type === 'unavailable-id') {
-                console.warn('⚠️ ID no disponible (colisión extrema), usando sufijo aleatorio...');
-                // Fallback por si acaso, aunque con 10 chars alfanuméricos es estadísticamente imposible
                 const fallbackId = peerId + Math.random().toString(36).slice(2, 5);
                 peer = new window.Peer(fallbackId, { debug: 1 });
-            } else {
+            } else if (err.type === 'network' || err.type === 'server-error') {
                 reject(err);
             }
         });
 
-        // Cuando otro peer nos conecta
         peer.on('connection', (conn) => {
             console.log('🔗 Nueva conexión entrante de:', conn.peer);
             setupConnection(conn);
         });
+
+        peer.on('disconnected', () => peer.reconnect());
+        peer.on('close', () => { isConnected = false; });
     });
 }
 
 /**
- * Configura los eventos de una conexión WebRTC
+ * Configura los event listeners de una conexión WebRTC
  */
 function setupConnection(conn) {
     conn.on('open', () => {
         console.log('✅ Conexión WebRTC establecida con:', conn.peer);
         connections.set(conn.peer, conn);
-    });
-
-    conn.on('data', (data) => {
-        console.log('📨 Mensaje recibido vía WebRTC P2P:', data);
-        // data debe tener { senderPin, text, id, timestamp }
-        const handler = messageHandlers.get(data.senderPin);
-        if (handler) {
-            handler(data);
+        
+        // 🚀 NUEVO: Enviar mensajes pendientes si los hay
+        if (pendingMessages.has(conn.peer)) {
+            const messages = pendingMessages.get(conn.peer);
+            console.log(`📤 Enviando ${messages.length} mensaje(s) pendiente(s) a ${conn.peer}`);
+            messages.forEach(payload => {
+                try { conn.send(payload); } catch (e) { console.error(e); }
+            });
+            pendingMessages.delete(conn.peer);
         }
     });
 
-    conn.on('close', () => {
-        console.log('🔌 Conexión cerrada con:', conn.peer);
-        connections.delete(conn.peer);
+    conn.on('data', async (data) => {
+        if (data.type === 'file-chunk') {
+            const handler = messageHandlers.get('file-chunk');
+            if (handler) await handler(data);
+        } else if (data.type === 'file-metadata') {
+            const handler = messageHandlers.get(myPin);
+            if (handler) await handler(data);
+        } else {
+            const handler = messageHandlers.get(myPin);
+            if (handler) await handler(data);
+        }
     });
-    
-    conn.on('error', (err) => {
-        console.error('❌ Error en conexión WebRTC:', err);
-    });
+
+    conn.on('close', () => connections.delete(conn.peer));
+    conn.on('error', (err) => connections.delete(conn.peer));
 }
 
 /**
  * Envía un mensaje a un peer específico
- * @param {string} targetPin - PIN del destinatario
- * @param {Object} messageData - Datos del mensaje
  */
 export async function sendMessage(targetPin, messageData) {
-    if (!isConnected || !peer) {
-        throw new Error('Red P2P no está conectada');
-    }
+    if (!isConnected || !peer) throw new Error('Red P2P no está conectada');
 
     const targetId = targetPin.replace(/-/g, '').toLowerCase();
     const identity = await getIdentity();
@@ -102,50 +107,60 @@ export async function sendMessage(targetPin, messageData) {
         timestamp: Date.now()
     };
 
-    // Si ya tenemos la conexión, la usamos
     let conn = connections.get(targetId);
     
     if (!conn) {
         console.log('🔄 Iniciando nueva conexión WebRTC hacia:', targetId);
-        conn = peer.connect(targetId, {
-            reliable: true // Garantiza la entrega del mensaje
-        });
+        conn = peer.connect(targetId, { reliable: true, serialization: 'json' });
         connections.set(targetId, conn);
         setupConnection(conn);
-        
-        // Esperar a que la conexión se abra antes de enviar
-        await new Promise((resolve) => {
-            conn.on('open', resolve);
-            // Timeout de seguridad por si el otro peer está offline
-            setTimeout(() => resolve(), 3000);
-        });
     }
 
     if (conn.open) {
         conn.send(payload);
-        console.log(`✅ Mensaje enviado P2P a ${targetPin}`);
+        if (messageData.type !== 'file-chunk') {
+            console.log(`✅ Mensaje enviado P2P a ${targetPin}`);
+        }
     } else {
-        console.warn('⚠️ El destinatario no está en línea. Mensaje guardado localmente.');
-        throw new Error('Destinatario offline');
+        // 🚀 NUEVO: Si no está abierta, encolar el mensaje
+        console.warn(`⏳ Conexión con ${targetPin} aún no está abierta. Guardando en cola...`);
+        if (!pendingMessages.has(targetId)) pendingMessages.set(targetId, []);
+        pendingMessages.get(targetId).push(payload);
+        
+        const error = new Error('Conexión pendiente');
+        error.isPending = true; // Bandera para que messaging.js no lo trate como error grave
+        throw error;
     }
 }
 
-/**
- * Registra un handler para mensajes entrantes de un PIN específico
- */
-export function registerMessageHandler(pin, handler) {
-    messageHandlers.set(pin, handler);
-    console.log(`📝 Handler registrado para PIN: ${pin}`);
+export async function sendFile(targetPin, fileData, onProgress = null) {
+    const { metadata, chunks } = fileData;
+    await sendMessage(targetPin, { type: 'file-metadata', fileId: metadata.id, metadata: metadata });
+    for (let i = 0; i < chunks.length; i++) {
+        await sendMessage(targetPin, { type: 'file-chunk', fileId: metadata.id, chunkIndex: i, chunkData: chunks[i], totalChunks: chunks.length });
+        if (onProgress) onProgress(Math.round(((i + 1) / chunks.length) * 100));
+        await new Promise(resolve => setTimeout(resolve, 5));
+    }
 }
 
-export function getConnectionStatus() {
-    return isConnected;
+export function registerMessageHandler(pin, handler) {
+    const cleanPin = pin.replace(/-/g, '').toUpperCase();
+    messageHandlers.set(cleanPin, handler);
 }
+
+export function registerFileChunkHandler(handler) {
+    messageHandlers.set('file-chunk', handler);
+}
+
+export function getConnectionStatus() { return isConnected; }
+export function getPeerId() { return peer ? peer.id : null; }
 
 export async function stopP2PNetwork() {
     if (peer) {
+        connections.forEach((conn) => conn.close());
+        connections.clear();
         peer.destroy();
+        peer = null;
         isConnected = false;
-        console.log('🛑 Red P2P detenida');
     }
 }
