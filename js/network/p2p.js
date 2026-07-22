@@ -115,7 +115,7 @@ function setupConnection(conn) {
     });
 }
 /**
- * Envía un mensaje a un peer específico
+ * Envía un mensaje o chunk a un peer específico
  */
 export async function sendMessage(targetPin, messageData) {
     if (!isConnected || !peer) {
@@ -142,7 +142,6 @@ export async function sendMessage(targetPin, messageData) {
         connections.set(targetId, conn);
         setupConnection(conn);
         
-        // Esperar a que la conexión se abra
         await new Promise((resolve) => {
             const openHandler = () => {
                 conn.off('open', openHandler);
@@ -158,11 +157,52 @@ export async function sendMessage(targetPin, messageData) {
 
     if (conn.open) {
         conn.send(payload);
-        console.log(`✅ Mensaje enviado P2P a ${targetPin}`);
+        if (messageData.type !== 'file-chunk') {
+            console.log(`✅ Mensaje enviado P2P a ${targetPin}`);
+        }
     } else {
         console.warn('⚠️ El destinatario no está en línea.');
         throw new Error('Destinatario offline');
     }
+}
+
+/**
+ * Envía un archivo completo (metadatos + chunks) a un peer
+ * @param {string} targetPin - PIN del destinatario
+ * @param {Object} fileData - Datos del archivo (metadata + chunks)
+ * @param {Function} onProgress - Callback de progreso (0-100)
+ */
+export async function sendFile(targetPin, fileData, onProgress = null) {
+    const { metadata, chunks } = fileData;
+    
+    // 1. Enviar primero los metadatos del archivo
+    await sendMessage(targetPin, {
+        type: 'file-metadata',
+        fileId: metadata.id,
+        metadata: metadata
+    });
+    
+    // 2. Enviar cada chunk con una pequeña pausa para no saturar
+    for (let i = 0; i < chunks.length; i++) {
+        await sendMessage(targetPin, {
+            type: 'file-chunk',
+            fileId: metadata.id,
+            chunkIndex: i,
+            chunkData: chunks[i],
+            totalChunks: chunks.length
+        });
+        
+        // Reportar progreso
+        if (onProgress) {
+            const progress = Math.round(((i + 1) / chunks.length) * 100);
+            onProgress(progress);
+        }
+        
+        // Pausa pequeña entre chunks (5ms) para no saturar WebRTC
+        await new Promise(resolve => setTimeout(resolve, 5));
+    }
+    
+    console.log(`✅ Archivo completo enviado: ${metadata.name}`);
 }
 
 /**
