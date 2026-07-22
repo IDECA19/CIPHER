@@ -6,7 +6,7 @@
     <meta name="description" content="CipherChat - Mensajería P2P cifrada">
     <title>CipherChat</title>
     
-    <!-- PeerJS para WebRTC P2P (100% gratuito, solo señalización inicial) -->
+    <!-- PeerJS para WebRTC P2P (Se carga aquí, no necesita importmap) -->
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     
     <!-- Estilos -->
@@ -76,9 +76,7 @@
                     </div>
                 </header>
                 
-                <div class="chat-window__messages" id="chat-messages">
-                    <!-- Los mensajes se renderizan dinámicamente -->
-                </div>
+                <div class="chat-window__messages" id="chat-messages"></div>
                 
                 <footer class="chat-window__input">
                     <textarea id="message-input" placeholder="Escribe un mensaje..." rows="1"></textarea>
