@@ -1,25 +1,17 @@
 // js/network/p2p.js - Módulo de red P2P usando WebRTC (PeerJS)
-// Versión con cola de mensajes pendientes para handshakes lentos
-
 import { getIdentity } from '../core/storage.js';
 
 let peer = null;
 let connections = new Map();
 let messageHandlers = new Map();
-let pendingMessages = new Map(); // 🚀 NUEVO: targetId -> Array of payloads
+let pendingMessages = new Map(); // 🚀 Cola de mensajes pendientes
 let isConnected = false;
 let myPin = null;
 
-/**
- * Inicializa la conexión P2P con PeerJS
- */
 export async function initP2PNetwork() {
     console.log('🌐 Inicializando red P2P con WebRTC (PeerJS)...');
-    
     const identity = await getIdentity();
-    if (!identity) {
-        throw new Error('No se encontró identidad del usuario');
-    }
+    if (!identity) throw new Error('No se encontró identidad del usuario');
 
     myPin = identity.pin.replace(/-/g, '').toUpperCase();
     const peerId = identity.pin.replace(/-/g, '').toLowerCase();
@@ -56,15 +48,12 @@ export async function initP2PNetwork() {
     });
 }
 
-/**
- * Configura los event listeners de una conexión WebRTC
- */
 function setupConnection(conn) {
     conn.on('open', () => {
         console.log('✅ Conexión WebRTC establecida con:', conn.peer);
         connections.set(conn.peer, conn);
         
-        // 🚀 NUEVO: Enviar mensajes pendientes si los hay
+        // 🚀 Enviar mensajes pendientes si los hay
         if (pendingMessages.has(conn.peer)) {
             const messages = pendingMessages.get(conn.peer);
             console.log(`📤 Enviando ${messages.length} mensaje(s) pendiente(s) a ${conn.peer}`);
@@ -92,9 +81,6 @@ function setupConnection(conn) {
     conn.on('error', (err) => connections.delete(conn.peer));
 }
 
-/**
- * Envía un mensaje a un peer específico
- */
 export async function sendMessage(targetPin, messageData) {
     if (!isConnected || !peer) throw new Error('Red P2P no está conectada');
 
@@ -121,15 +107,14 @@ export async function sendMessage(targetPin, messageData) {
         if (messageData.type !== 'file-chunk') {
             console.log(`✅ Mensaje enviado P2P a ${targetPin}`);
         }
+        return { status: 'sent' };
     } else {
-        // 🚀 NUEVO: Si no está abierta, encolar el mensaje
+        // 🚀 Encolar el mensaje en lugar de lanzar error
         console.warn(`⏳ Conexión con ${targetPin} aún no está abierta. Guardando en cola...`);
         if (!pendingMessages.has(targetId)) pendingMessages.set(targetId, []);
         pendingMessages.get(targetId).push(payload);
         
-        const error = new Error('Conexión pendiente');
-        error.isPending = true; // Bandera para que messaging.js no lo trate como error grave
-        throw error;
+        return { status: 'pending', message: 'Mensaje en cola de envío' };
     }
 }
 
