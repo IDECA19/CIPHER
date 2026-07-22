@@ -4,7 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="CipherChat - Mensajería P2P cifrada">
-    <title>Cipher</title>
+    <title>CipherChat</title>
+    
+    <!-- PeerJS para WebRTC P2P (100% gratuito, solo señalización inicial) -->
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     
     <!-- Estilos -->
     <link rel="stylesheet" href="css/reset.css">
@@ -14,29 +17,12 @@
     <link rel="stylesheet" href="css/chat_window.css">
     <link rel="stylesheet" href="css/components.css">
     <link rel="stylesheet" href="css/contacts_modal.css">
-
-<!-- Libp2p y dependencias desde CDN -->
-<script type="importmap">
-{
-    "imports": {
-        "libp2p": "https://cdn.jsdelivr.net/npm/libp2p@1.0.0/+esm",
-        "@libp2p/webrtc": "https://cdn.jsdelivr.net/npm/@libp2p/webrtc@1.0.0/+esm",
-        "@libp2p/websockets": "https://cdn.jsdelivr.net/npm/@libp2p/websockets@8.0.0/+esm",
-        "@libp2p/kad-dht": "https://cdn.jsdelivr.net/npm/@libp2p/kad-dht@12.0.0/+esm",
-        "@chainsafe/libp2p-gossipsub": "https://cdn.jsdelivr.net/npm/@chainsafe/libp2p-gossipsub@12.0.0/+esm",
-        "@chainsafe/libp2p-noise": "https://cdn.jsdelivr.net/npm/@chainsafe/libp2p-noise@15.0.0/+esm",
-        "@chainsafe/libp2p-yamux": "https://cdn.jsdelivr.net/npm/@chainsafe/libp2p-yamux@6.0.0/+esm",
-        "@libp2p/bootstrap": "https://cdn.jsdelivr.net/npm/@libp2p/bootstrap@10.0.0/+esm",
-        "@libp2p/identify": "https://cdn.jsdelivr.net/npm/@libp2p/identify@2.0.0/+esm"
-    }
-}
-</script>
 </head>
 <body>
     <!-- Pantalla de carga inicial -->
     <div id="splash-screen" class="splash">
         <div class="splash__logo">🔐</div>
-        <div class="splash__title">Cipher</div>
+        <div class="splash__title">CipherChat</div>
         <div class="splash__status" id="splash-status">Inicializando...</div>
     </div>
 
@@ -61,7 +47,6 @@
             </div>
             
             <div class="chat-list" id="chat-list">
-                <!-- Los chats se renderizan dinámicamente -->
                 <div class="empty-state" id="empty-chats">
                     <div class="empty-state__icon">💬</div>
                     <div class="empty-state__title">Sin chats aún</div>
@@ -106,12 +91,18 @@
     <!-- Contenedor de notificaciones -->
     <div id="toast-container" class="toast-container"></div>
 
-    <!-- Scripts (orden de carga importante) -->
+    <!-- Scripts de la aplicación -->
     <script type="module" src="js/config.js"></script>
     <script type="module" src="js/utils/formatter.js"></script>
     <script type="module" src="js/core/crypto.js"></script>
     <script type="module" src="js/core/identity.js"></script>
     <script type="module" src="js/core/storage.js"></script>
+    <script type="module" src="js/services/contacts.js"></script>
+    <script type="module" src="js/services/messaging.js"></script>
+    <script type="module" src="js/network/p2p.js"></script>
+    <script type="module" src="js/ui/chat_list.js"></script>
+    <script type="module" src="js/ui/chat_window.js"></script>
+    <script type="module" src="js/ui/contacts_modal.js"></script>
     <script type="module" src="js/main.js"></script>
 </body>
 </html>

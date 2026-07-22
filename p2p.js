@@ -1,165 +1,132 @@
-// js/network/p2p.js - Módulo de red P2P usando libp2p
+// js/network/p2p.js - Módulo de red P2P usando WebRTC (PeerJS)
 
-import { createLibp2p } from 'libp2p';
-import { webRTC } from '@libp2p/webrtc';
-import { webSockets } from '@libp2p/websockets';
-import { kadDHT } from '@libp2p/kad-dht';
-import { gossipsub } from '@chainsafe/libp2p-gossipsub';
-import { noise } from '@chainsafe/libp2p-noise';
-import { yamux } from '@chainsafe/libp2p-yamux';
-import { bootstrap } from '@libp2p/bootstrap';
-import { identify } from '@libp2p/identify';
-
-import { NETWORK_CONFIG } from '../config.js';
 import { getIdentity } from '../core/storage.js';
 
-// Variables globales del módulo
-let libp2pNode = null;
-let pubsub = null;
+let peer = null;
+let connections = new Map(); // peerId -> DataConnection
+let messageHandlers = new Map(); // pin -> handler function
 let isConnected = false;
-let messageHandlers = new Map(); // PIN -> handler function
 
 /**
- * Inicializa el nodo libp2p
- * @returns {Promise<Object>} Nodo libp2p inicializado
+ * Inicializa la conexión P2P
+ * @returns {Promise<Object>} Instancia de Peer
  */
 export async function initP2PNetwork() {
-    console.log('🌐 Inicializando red P2P...');
+    console.log('🌐 Inicializando red P2P con WebRTC (PeerJS)...');
     
-    try {
-        // Obtener identidad del usuario
-        const identity = await getIdentity();
-        if (!identity) {
-            throw new Error('No se encontró identidad del usuario');
-        }
+    const identity = await getIdentity();
+    if (!identity) {
+        throw new Error('No se encontró identidad del usuario');
+    }
 
-        console.log('⚙️ Configurando nodo libp2p...');
-        
-        // Crear el nodo libp2p
-        libp2pNode = await createLibp2p({
-            addresses: {
-                listen: ['/webrtc']
-            },
-            transports: [
-                webSockets(),
-                webRTC()
-            ],
-            connectionEncryption: [noise()],
-            streamMuxers: [yamux()],
-            connectionGater: {
-                denyDialMultiaddr: () => false
-            },
-            peerDiscovery: [
-                bootstrap({
-                    list: NETWORK_CONFIG.bootstrapNodes
-                })
-            ],
-            services: {
-                dht: kadDHT({
-                    clientMode: true
-                }),
-                pubsub: gossipsub({
-                    emitSelf: false,
-                    allowPublishToZeroPeers: true
-                }),
-                identify: identify()
+    // Usamos el PIN sin guiones y en minúsculas como ID de Peer
+    const peerId = identity.pin.replace(/-/g, '').toLowerCase();
+    
+    // Inicializar PeerJS (usa el servidor público gratuito SOLO para señalización)
+    // Los mensajes NUNCA pasan por este servidor, es 100% P2P WebRTC directo
+    peer = new window.Peer(peerId, {
+        debug: 1 // 0 = off, 1 = errors, 2 = warnings, 3 = all
+    });
+
+    return new Promise((resolve, reject) => {
+        peer.on('open', (id) => {
+            console.log('✅ Nodo P2P iniciado. ID WebRTC:', id);
+            isConnected = true;
+            resolve(peer);
+        });
+
+        peer.on('error', (err) => {
+            console.error('❌ Error en PeerJS:', err);
+            if (err.type === 'unavailable-id') {
+                console.warn('⚠️ ID no disponible (colisión extrema), usando sufijo aleatorio...');
+                // Fallback por si acaso, aunque con 10 chars alfanuméricos es estadísticamente imposible
+                const fallbackId = peerId + Math.random().toString(36).slice(2, 5);
+                peer = new window.Peer(fallbackId, { debug: 1 });
+            } else {
+                reject(err);
             }
         });
 
-        // Configurar event listeners
-        setupLibp2pEventListeners();
-
-        // Iniciar el nodo
-        await libp2pNode.start();
-        
-        pubsub = libp2pNode.services.pubsub;
-        isConnected = true;
-
-        console.log('✅ Nodo libp2p iniciado');
-        console.log('🆔 PeerID:', libp2pNode.peerId.toString());
-        console.log('📡 Escuchando en:', libp2pNode.getMultiaddrs().map(m => m.toString()));
-
-        // Suscribirse al topic personal (tu PIN)
-        await subscribeToOwnTopic(identity.pin);
-
-        return libp2pNode;
-
-    } catch (error) {
-        console.error('❌ Error inicializando libp2p:', error);
-        throw new Error('No se pudo inicializar la red P2P: ' + error.message);
-    }
-}
-
-/**
- * Configura los event listeners del nodo libp2p
- */
-function setupLibp2pEventListeners() {
-    libp2pNode.addEventListener('peer:connect', (evt) => {
-        console.log('🔗 Conectado a peer:', evt.detail.toString());
-    });
-
-    libp2pNode.addEventListener('peer:disconnect', (evt) => {
-        console.log('🔌 Desconectado de peer:', evt.detail.toString());
+        // Cuando otro peer nos conecta
+        peer.on('connection', (conn) => {
+            console.log('🔗 Nueva conexión entrante de:', conn.peer);
+            setupConnection(conn);
+        });
     });
 }
 
 /**
- * Se suscribe al topic personal del usuario (su PIN)
- * @param {string} userPin - PIN del usuario
+ * Configura los eventos de una conexión WebRTC
  */
-async function subscribeToOwnTopic(userPin) {
-    const topic = `/cipherchat/${userPin}`;
-    console.log(`📬 Suscribiéndose al topic: ${topic}`);
-    
-    pubsub.addEventListener('message', (evt) => {
-        const { topic: msgTopic, data } = evt.detail;
-        
-        if (msgTopic === topic) {
-            try {
-                const message = JSON.parse(new TextDecoder().decode(data));
-                console.log('📨 Mensaje recibido:', message);
-                
-                const handler = messageHandlers.get(userPin);
-                if (handler) {
-                    handler(message);
-                }
-            } catch (error) {
-                console.error('Error procesando mensaje:', error);
-            }
+function setupConnection(conn) {
+    conn.on('open', () => {
+        console.log('✅ Conexión WebRTC establecida con:', conn.peer);
+        connections.set(conn.peer, conn);
+    });
+
+    conn.on('data', (data) => {
+        console.log('📨 Mensaje recibido vía WebRTC P2P:', data);
+        // data debe tener { senderPin, text, id, timestamp }
+        const handler = messageHandlers.get(data.senderPin);
+        if (handler) {
+            handler(data);
         }
     });
 
-    await pubsub.subscribe(topic);
-    console.log('✅ Suscrito al topic personal');
+    conn.on('close', () => {
+        console.log('🔌 Conexión cerrada con:', conn.peer);
+        connections.delete(conn.peer);
+    });
+    
+    conn.on('error', (err) => {
+        console.error('❌ Error en conexión WebRTC:', err);
+    });
 }
 
 /**
  * Envía un mensaje a un peer específico
  * @param {string} targetPin - PIN del destinatario
  * @param {Object} messageData - Datos del mensaje
- * @returns {Promise<void>}
  */
 export async function sendMessage(targetPin, messageData) {
-    if (!isConnected || !pubsub) {
+    if (!isConnected || !peer) {
         throw new Error('Red P2P no está conectada');
     }
 
-    const topic = `/cipherchat/${targetPin}`;
+    const targetId = targetPin.replace(/-/g, '').toLowerCase();
     const identity = await getIdentity();
-    const messagePayload = {
+    
+    const payload = {
         ...messageData,
-        timestamp: Date.now(),
-        senderPin: identity.pin
+        senderPin: identity.pin,
+        timestamp: Date.now()
     };
 
-    const encodedData = new TextEncoder().encode(JSON.stringify(messagePayload));
+    // Si ya tenemos la conexión, la usamos
+    let conn = connections.get(targetId);
+    
+    if (!conn) {
+        console.log('🔄 Iniciando nueva conexión WebRTC hacia:', targetId);
+        conn = peer.connect(targetId, {
+            reliable: true // Garantiza la entrega del mensaje
+        });
+        connections.set(targetId, conn);
+        setupConnection(conn);
+        
+        // Esperar a que la conexión se abra antes de enviar
+        await new Promise((resolve) => {
+            conn.on('open', resolve);
+            // Timeout de seguridad por si el otro peer está offline
+            setTimeout(() => resolve(), 3000);
+        });
+    }
 
-    try {
-        await pubsub.publish(topic, encodedData);
-        console.log(`✅ Mensaje enviado a ${targetPin}`);
-    } catch (error) {
-        console.error('❌ Error enviando mensaje:', error);
-        throw new Error('No se pudo enviar el mensaje: ' + error.message);
+    if (conn.open) {
+        conn.send(payload);
+        console.log(`✅ Mensaje enviado P2P a ${targetPin}`);
+    } else {
+        console.warn('⚠️ El destinatario no está en línea. Mensaje guardado localmente.');
+        throw new Error('Destinatario offline');
     }
 }
 
@@ -176,8 +143,8 @@ export function getConnectionStatus() {
 }
 
 export async function stopP2PNetwork() {
-    if (libp2pNode) {
-        await libp2pNode.stop();
+    if (peer) {
+        peer.destroy();
         isConnected = false;
         console.log('🛑 Red P2P detenida');
     }
