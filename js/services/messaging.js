@@ -7,11 +7,6 @@ import { sendMessage as p2pSendMessage } from '../network/p2p.js';
 
 /**
  * Guarda un mensaje en la base de datos local
- * @param {string} chatId - ID del chat (generalmente el PIN del contacto)
- * @param {string} text - Contenido del mensaje
- * @param {boolean} isSent - true si lo envió el usuario, false si es recibido
- * @param {string} senderPin - PIN del remitente
- * @returns {Promise<Object>} El mensaje guardado
  */
 export async function saveMessage(chatId, text, isSent, senderPin = null) {
     const message = {
@@ -32,10 +27,6 @@ export async function saveMessage(chatId, text, isSent, senderPin = null) {
 
 /**
  * Envía un mensaje tanto local como P2P
- * @param {string} targetPin - PIN del destinatario
- * @param {string} text - Contenido del mensaje
- * @param {string} senderPin - PIN del remitente
- * @returns {Promise<Object>} El mensaje guardado
  */
 export async function sendP2PMessage(targetPin, text, senderPin) {
     // 1. Guardar localmente como "enviado"
@@ -50,7 +41,7 @@ export async function sendP2PMessage(targetPin, text, senderPin) {
         });
         console.log('✅ Mensaje enviado por P2P');
     } catch (error) {
-        console.error('⚠️ Error enviando por P2P (mensaje guardado localmente):', error);
+        console.warn('⚠️ Error enviando por P2P (mensaje guardado localmente):', error.message);
     }
     
     return message;
@@ -58,7 +49,6 @@ export async function sendP2PMessage(targetPin, text, senderPin) {
 
 /**
  * Procesa un mensaje recibido por P2P
- * @param {Object} messageData - Datos del mensaje recibido
  */
 export async function receiveP2PMessage(messageData) {
     const { id, text, senderPin, timestamp } = messageData;
@@ -76,8 +66,6 @@ export async function receiveP2PMessage(messageData) {
 
 /**
  * Obtiene todos los mensajes de un chat específico
- * @param {string} chatId - ID del chat
- * @returns {Promise<Array>} Lista de mensajes
  */
 export async function getChatMessages(chatId) {
     const messages = await getByIndex(STORAGE_CONFIG.stores.messages, 'chatId', chatId);
