@@ -97,31 +97,40 @@ function setupConnectionListeners(conn) {
  * Envía un payload a un PIN específico
  */
 export async function sendMessage(targetPin, messageData) {
-    const cleanPin = targetPin.replace(/-/g, '').toLowerCase();
+    // Normalizar PIN objetivo
+    const cleanPin = targetPin.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
 
     return new Promise((resolve, reject) => {
         let conn = activeConnections.get(cleanPin.toUpperCase());
 
-        if (conn && conn.open) {
-            conn.send(messageData);
-            console.log('✅ Mensaje enviado vía canal P2P existente');
-            return resolve();
+        // Verificar si existe y si el estado del canal de datos sigue abierto
+        if (conn && conn.open && conn.peerConnection && conn.peerConnection.connectionState === 'connected') {
+            try {
+                conn.send(messageData);
+                console.log('✅ Mensaje P2P enviado por canal activo');
+                return resolve();
+            } catch (e) {
+                console.warn('⚠️ Falló el envío en socket aparentemente abierto, reintentando conexión...', e);
+                activeConnections.delete(cleanPin.toUpperCase());
+            }
         }
 
-        console.log(`📞 Conectando con el destinatario P2P: ${cleanPin}...`);
+        // Si la conexión estaba muerta o no existía, abrir una nueva
+        console.log(`📞 Estableciendo nueva conexión P2P con: ${cleanPin}...`);
         conn = peerInstance.connect(cleanPin, { reliable: true });
 
         conn.on('open', () => {
             activeConnections.set(cleanPin.toUpperCase(), conn);
             setupConnectionListeners(conn);
             conn.send(messageData);
-            console.log('✅ Mensaje enviado tras abrir canal P2P');
+            console.log('✅ Mensaje P2P enviado exitosamente');
             resolve();
         });
 
         conn.on('error', (err) => {
-            console.error('❌ Error al conectar con el destinatario P2P:', err);
-            reject(new Error('El destinatario no está en línea en la red P2P.'));
+            console.error('❌ Error al conectar con el peer P2P:', err);
+            activeConnections.delete(cleanPin.toUpperCase());
+            reject(new Error('El destinatario no está disponible en la red P2P.'));
         });
     });
 }
