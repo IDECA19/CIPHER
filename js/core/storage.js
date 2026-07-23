@@ -155,25 +155,51 @@ export async function saveIdentity(identity) {
     await saveToStore(STORAGE_CONFIG.stores.identity, identity);
 }
 
-// --- GESTIÓN DE CONTACTOS (EXPORTACIONES ESPECÍFICAS) ---
+// --- GESTIÓN DE CONTACTOS ---
 
+/**
+ * Guarda o actualiza un contacto, incluyendo su llave pública (ECDH)
+ */
 export async function saveContact(contact) {
-    return await saveToStore(STORAGE_CONFIG.stores.contacts, contact);
+    if (!contact || !contact.pin) {
+        throw new Error('El contacto debe incluir al menos un PIN válido.');
+    }
+    
+    // Normalizamos el PIN eliminando guiones para asegurar que sea único en la base de datos
+    const cleanPin = contact.pin.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+    
+    const record = {
+        ...contact,
+        pin: cleanPin,
+        updatedAt: Date.now()
+    };
+    
+    // Usamos el método genérico que ya gestiona la inicialización de la DB
+    return await saveToStore(STORAGE_CONFIG.stores.contacts, record);
 }
 
 export async function getAllContacts() {
     return await getAllFromStore(STORAGE_CONFIG.stores.contacts);
 }
 
+/**
+ * Obtiene un contacto guardado por su PIN desde IndexedDB
+ */
 export async function getContactByPin(pin) {
-    return await getFromStore(STORAGE_CONFIG.stores.contacts, pin);
+    if (!pin) return null;
+    
+    // Normalizamos el PIN para que coincida exactamente con cómo se guardó
+    const cleanPin = pin.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+    return await getFromStore(STORAGE_CONFIG.stores.contacts, cleanPin);
 }
 
 export async function deleteContact(pin) {
-    return await deleteFromStore(STORAGE_CONFIG.stores.contacts, pin);
+    if (!pin) return;
+    const cleanPin = pin.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+    return await deleteFromStore(STORAGE_CONFIG.stores.contacts, cleanPin);
 }
 
-// --- GESTIÓN DE MENSAJES (EXPORTACIONES ESPECÍFICAS) ---
+// --- GESTIÓN DE MENSAJES ---
 
 export async function saveMessage(message) {
     return await saveToStore(STORAGE_CONFIG.stores.messages, message);

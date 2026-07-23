@@ -6,24 +6,6 @@
     <meta name="description" content="CipherChat - Mensajería P2P cifrada de extremo a extremo">
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🔐</text></svg>">
     
-    <!-- Import Map para libp2p y dependencias descentralizadas (Versiones CDN Oficiales) -->
-    <script type="importmap">
-    {
-        "imports": {
-            "libp2p": "https://cdn.jsdelivr.net/npm/libp2p@1.0.0/+esm",
-            "@libp2p/webrtc": "https://cdn.jsdelivr.net/npm/@libp2p/webrtc@6.0.23/+esm",
-            "@libp2p/websockets": "https://cdn.jsdelivr.net/npm/@libp2p/websockets@8.0.0/+esm",
-            "@libp2p/kad-dht": "https://cdn.jsdelivr.net/npm/@libp2p/kad-dht@12.0.0/+esm",
-            "@chainsafe/libp2p-gossipsub": "https://cdn.jsdelivr.net/npm/@chainsafe/libp2p-gossipsub@12.0.0/+esm",
-            "@chainsafe/libp2p-noise": "https://cdn.jsdelivr.net/npm/@chainsafe/libp2p-noise@15.0.0/+esm",
-            "@chainsafe/libp2p-yamux": "https://cdn.jsdelivr.net/npm/@chainsafe/libp2p-yamux@6.0.0/+esm",
-            "@libp2p/bootstrap": "https://cdn.jsdelivr.net/npm/@libp2p/bootstrap@10.0.0/+esm",
-            "@libp2p/identify": "https://cdn.jsdelivr.net/npm/@libp2p/identify@2.0.0/+esm"
-        }
-    }
-    </script>
-
-    <!-- Hojas de estilo CSS (Estructura modular) -->
     <link rel="stylesheet" href="css/reset.css">
     <link rel="stylesheet" href="css/variables.css">
     <link rel="stylesheet" href="css/layout.css">
@@ -33,16 +15,13 @@
     <link rel="stylesheet" href="css/contacts_modal.css">
 </head>
 <body>
-    <!-- Pantalla de carga inicial (Splash Screen) -->
     <div id="splash-screen" class="splash">
         <div class="splash__logo">🔐</div>
         <div class="splash__title">CipherChat</div>
         <div class="splash__status" id="splash-status">Inicializando...</div>
     </div>
 
-    <!-- Aplicación principal -->
     <div id="app" class="app hidden">
-        <!-- Panel izquierdo: lista de chats y controles -->
         <aside class="sidebar">
             <header class="sidebar__header">
                 <div class="user-info">
@@ -61,7 +40,6 @@
             </div>
             
             <div class="chat-list" id="chat-list">
-                <!-- Los chats activos se renderizan dinámicamente -->
                 <div class="empty-state" id="empty-chats">
                     <div class="empty-state__icon">💬</div>
                     <div class="empty-state__title">Sin chats aún</div>
@@ -70,9 +48,7 @@
             </div>
         </aside>
 
-        <!-- Panel derecho: área de conversación principal -->
         <main class="chat-area">
-            <!-- Estado inicial (sin chat seleccionado) -->
             <div class="chat-area__empty" id="chat-empty">
                 <div class="chat-area__logo">🔐</div>
                 <h2>CipherChat</h2>
@@ -84,7 +60,6 @@
                 </div>
             </div>
             
-            <!-- Ventana activa de chat -->
             <div class="chat-window hidden" id="chat-window">
                 <header class="chat-window__header">
                     <div class="chat-window__info">
@@ -94,8 +69,7 @@
                 </header>
                 
                 <div class="chat-window__messages" id="chat-messages">
-                    <!-- Los mensajes del chat se cargan dinámicamente -->
-                </div>
+                    </div>
                 
                 <footer class="chat-window__input">
                     <textarea id="message-input" placeholder="Escribe un mensaje..." rows="1"></textarea>
@@ -105,10 +79,8 @@
         </main>
     </div>
 
-    <!-- Contenedor global de notificaciones toast -->
     <div id="toast-container" class="toast-container"></div>
 
-    <!-- Carga del punto de entrada principal (JS Modules) -->
     <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
     <script type="module" src="js/main.js"></script>
 </body>

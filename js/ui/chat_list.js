@@ -1,8 +1,9 @@
 // js/ui/chat_list.js - Renderizado de la lista de chats en el sidebar
 
-import { getAllContacts } from '../services/contacts.js';
+// ✅ CORRECCIÓN: Se cambió getAllContacts por getContactsList
+import { getContactsList } from '../services/contacts.js'; 
 import { getAllChatsPreview } from '../services/messaging.js';
-import { formatPin, formatMessageTime, truncateText, getInitials } from '../utils/formatter.js';
+import { formatMessageTime, truncateText, getInitials } from '../utils/formatter.js';
 
 /**
  * Renderiza la lista de chats en el sidebar
@@ -13,7 +14,7 @@ export async function renderChatList(onChatClick) {
     const emptyState = document.getElementById('empty-chats');
     
     // Obtener contactos y previews de chats
-    const contacts = await getAllContacts();
+    const contacts = await getContactsList(); // ✅ CORRECCIÓN APLICADA
     const chats = await getAllChatsPreview();
     
     // Combinar contactos que tengan mensajes
@@ -51,21 +52,45 @@ export async function renderChatList(onChatClick) {
         const timeStr = chat.lastMessageAt ? formatMessageTime(chat.lastMessageAt) : '';
         const previewText = truncateText(chat.lastMessage || 'Sin mensajes aún', 35);
 
-        chatItem.innerHTML = `
-            <div class="chat-item__avatar">${initials}</div>
-            <div class="chat-item__content">
-                <div class="chat-item__header">
-                    <span class="chat-item__name">${chat.alias}</span>
-                    <span class="chat-item__time">${timeStr}</span>
-                </div>
-                <div class="chat-item__preview">
-                    <span class="chat-item__last-message">${previewText}</span>
-                </div>
-            </div>
-        `;
+        // ✅ SEGURIDAD CRÍTICA (Paso 3): Creación de nodos DOM segura (Evita XSS)
+        // En lugar de innerHTML, usamos createElement y textContent
+        
+        const avatarDiv = document.createElement('div');
+        avatarDiv.className = 'chat-item__avatar';
+        avatarDiv.textContent = initials;
+
+        const contentDiv = document.createElement('div');
+        contentDiv.className = 'chat-item__content';
+
+        const headerDiv = document.createElement('div');
+        headerDiv.className = 'chat-item__header';
+
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'chat-item__name';
+        nameSpan.textContent = chat.alias; // <-- Seguro contra inyección de scripts
+
+        const timeSpan = document.createElement('span');
+        timeSpan.className = 'chat-item__time';
+        timeSpan.textContent = timeStr;
+
+        headerDiv.appendChild(nameSpan);
+        headerDiv.appendChild(timeSpan);
+
+        const previewDiv = document.createElement('div');
+        previewDiv.className = 'chat-item__preview';
+
+        const lastMsgSpan = document.createElement('span');
+        lastMsgSpan.className = 'chat-item__last-message';
+        lastMsgSpan.textContent = previewText; // <-- Seguro contra inyección de scripts
+
+        previewDiv.appendChild(lastMsgSpan);
+        contentDiv.appendChild(headerDiv);
+        contentDiv.appendChild(previewDiv);
+        
+        chatItem.appendChild(avatarDiv);
+        chatItem.appendChild(contentDiv);
 
         chatItem.addEventListener('click', () => {
-            // Remover clase active de otros
             document.querySelectorAll('.chat-item').forEach(el => el.classList.remove('active'));
             chatItem.classList.add('active');
             onChatClick(chat.pin, chat.alias);

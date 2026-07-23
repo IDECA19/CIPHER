@@ -32,7 +32,7 @@ export async function openChatWindow(pin, name) {
  * Carga y renderiza los mensajes en la ventana activa
  * @param {string} pin - El PIN del contacto
  */
-async function loadMessages(pin) {
+export async function loadMessages(pin) {
     const container = document.getElementById('chat-messages');
     if (!container) return;
 
@@ -41,8 +41,6 @@ async function loadMessages(pin) {
 
     messages.forEach(msg => {
         const msgDiv = document.createElement('div');
-        
-        // CORRECCIÓN: Se agregaron las comillas invertidas (`) para el template literal
         msgDiv.className = `message ${msg.isOutgoing ? 'sent' : 'received'}`;
 
         const textDiv = document.createElement('div');
@@ -58,8 +56,11 @@ async function loadMessages(pin) {
         container.appendChild(msgDiv);
     });
 
-    // Desplazar el scroll hacia el último mensaje
-    container.scrollTop = container.scrollHeight;
+    // Desplazar el scroll hacia el último mensaje de forma suave
+    container.scrollTo({
+        top: container.scrollHeight,
+        behavior: 'smooth'
+    });
 }
 
 /**
@@ -69,16 +70,64 @@ export async function handleSendMessage() {
     if (!activeChatPin) return;
 
     const input = document.getElementById('message-input');
-    if (!input) return;
+    const sendBtn = document.getElementById('btn-send');
+    if (!input || !sendBtn) return;
 
     const text = input.value.trim();
     if (!text) return;
 
+    // Deshabilitar UI temporalmente para evitar múltiples clics
+    input.disabled = true;
+    sendBtn.disabled = true;
+
     try {
-        input.value = '';
         await sendChatMessage(activeChatPin, text);
+        
+        // 🟢 ÉXITO: Solo limpiamos el input si el mensaje se cifró y envió/guardó correctamente
+        input.value = ''; 
         await loadMessages(activeChatPin);
     } catch (err) {
-        console.error('❌ Error al enviar mensaje:', err);
+        // 🟡 MANEJO DEL HANDSHAKE E2EE
+        if (err.message.includes('Estableciendo conexión')) {
+            // Mostramos el aviso al usuario
+            showToast('🔐 ' + err.message, 'info');
+            // Nota: NO limpiamos input.value, así el usuario solo tiene que volver a darle a "Enviar"
+        } else {
+            // 🔴 OTROS ERRORES
+            showToast('❌ No se pudo enviar: ' + err.message, 'error');
+            console.error('Error al enviar mensaje:', err);
+        }
+    } finally {
+        // Restaurar la UI y devolver el foco al input
+        input.disabled = false;
+        sendBtn.disabled = false;
+        input.focus();
     }
+}
+
+/**
+ * Función auxiliar para mostrar notificaciones (Toasts) en la UI
+ * @param {string} message - Mensaje a mostrar
+ * @param {string} type - Tipo de toast ('info', 'error', 'success')
+ */
+function showToast(message, type = 'info') {
+    const container = document.getElementById('toast-container');
+    if (!container) {
+        alert(message); // Fallback por si no existe el contenedor
+        return;
+    }
+
+    const toast = document.createElement('div');
+    toast.className = `toast toast--${type}`;
+    toast.textContent = message;
+
+    container.appendChild(toast);
+
+    // Auto-eliminar después de 4 segundos
+    setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateY(20px)';
+        toast.style.transition = 'all 0.4s ease';
+        setTimeout(() => toast.remove(), 400);
+    }, 4000);
 }

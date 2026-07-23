@@ -1,8 +1,10 @@
 // js/services/messaging.js - Servicio para gestionar el ciclo de vida de los mensajes
 
 import { sendMessage as sendP2P, getConnectionStatus } from '../network/p2p.js';
-import { saveMessage, getAllFromStore, getIdentity } from '../core/storage.js';
-import { encryptMessage, decryptMessage } from '../core/crypto.js';
+// 🔧 IMPORTANTE: Agregamos getContactByPin y saveContact para gestionar el guardado de las llaves públicas
+import { saveMessage, getAllFromStore, getIdentity, getContactByPin, saveContact } from '../core/storage.js';
+// 🔧 IMPORTANTE: Actualizamos las importaciones de crypto.js para usar ECDH y llaves compartidas
+import { importPublicKeyJWK, importPrivateKeyJWK, deriveSharedAESKey, encryptMessage, decryptMessage } from '../core/crypto.js';
 import { STORAGE_CONFIG } from '../config.js';
 
 /**
@@ -37,7 +39,7 @@ export async function getAllChatsPreview() {
 }
 
 /**
- * Prepara y envía un mensaje cifrado
+ * Prepara y envía un mensaje cifrado o inicia un Handshake si falta la llave
  * @param {string} recipientPin - PIN del destinatario
  * @param {string} textContent - Texto plano del mensaje
  * @returns {Promise<Object>} Registro del mensaje guardado localmente
@@ -52,9 +54,26 @@ export async function sendChatMessage(recipientPin, textContent) {
         throw new Error('No se encontró la identidad del usuario local.');
     }
 
+    // 🔐 LÓGICA E2EE: Verificar si tenemos la llave pública del contacto
+    let contact = await getContactByPin(recipientPin);
+    if (!contact) {
+        // Si no existe, lo creamos temporalmente en memoria para proceder
+        contact = { pin: recipientPin, alias: recipientPin };
+    }
+
+    // 🤝 Si no hay llave pública, forzamos Handshake y pausamos el envío del mensaje
+    if (!contact.publicKey) {
+        console.log('🔄 Llave pública desconocida. Iniciando Handshake automático...');
+        await sendP2P(recipientPin, {
+            type: 'HANDSHAKE',
+            senderPin: myIdentity.pinFormatted || myIdentity.pin,
+            publicKey: myIdentity.publicKey,
+            isAck: false
+        });
+        throw new Error('Estableciendo conexión segura E2EE... Intenta enviar tu mensaje de nuevo en unos segundos.');
+    }
+
     const timestamp = Date.now();
-    
-    // CORRECCIÓN: Se agregaron las comillas invertidas (`) para el template literal
     const messageId = `msg_${timestamp}_${Math.random().toString(36).substring(2, 9)}`;
 
     // Estructura del mensaje en texto plano
@@ -66,17 +85,22 @@ export async function sendChatMessage(recipientPin, textContent) {
         timestamp: timestamp
     };
 
-    // Cifrar contenido con la clave del destinatario
-    const encryptedContent = await encryptMessage(JSON.stringify(payload), recipientPin);
+    // 🔐 LÓGICA E2EE: Reconstruir llaves y derivar secreto compartido
+    const myPrivateKey = await importPrivateKeyJWK(myIdentity.privateKey);
+    const targetPublicKey = await importPublicKeyJWK(contact.publicKey);
+    const sharedAESKey = await deriveSharedAESKey(myPrivateKey, targetPublicKey);
+
+    // Cifrar contenido con la clave compartida (Fuerte)
+    const encryptedContent = await encryptMessage(JSON.stringify(payload), sharedAESKey);
     
     const packet = {
-        type: 'chat_message',
+        type: 'chat_message', // Mantenemos tu tipo original para no romper compatibilidad
         senderPin: myIdentity.pinFormatted || myIdentity.pin,
         payload: encryptedContent,
         timestamp: timestamp
     };
 
-    // Guardar en la base de datos local (IndexedDB)
+    // Guardar en la base de datos local (IndexedDB) de forma inalterada
     const localRecord = {
         ...payload,
         isOutgoing: true,
@@ -88,7 +112,7 @@ export async function sendChatMessage(recipientPin, textContent) {
     if (getConnectionStatus()) {
         try {
             await sendP2P(recipientPin, packet);
-            console.log('✅ Mensaje P2P transmitido con éxito');
+            console.log('✅ Mensaje P2P cifrado transmitido con éxito');
         } catch (err) {
             console.warn('⚠️ Guardado localmente. Se enviará al reconectar:', err.message);
         }
@@ -100,33 +124,76 @@ export async function sendChatMessage(recipientPin, textContent) {
 }
 
 /**
- * Recibe y procesa mensajes P2P entrantes
+ * Recibe y procesa mensajes P2P entrantes y Handshakes
  * @param {Object} packet - Paquete P2P recibido
  */
 export async function receiveP2PMessage(packet) {
-    if (!packet || packet.type !== 'chat_message') return;
+    if (!packet) return;
 
     try {
-        const decryptedJson = await decryptMessage(packet.payload, packet.senderPin);
-        const messageData = JSON.parse(decryptedJson);
+        const myIdentity = await getIdentity();
 
-        const localRecord = {
-            id: messageData.id,
-            senderPin: messageData.senderPin,
-            recipientPin: messageData.recipientPin,
-            content: messageData.content,
-            timestamp: messageData.timestamp,
-            isOutgoing: false,
-            status: 'received'
-        };
+        // 🤝 CASO 1: Procesar un paquete de Handshake (Intercambio de llaves)
+        if (packet.type === 'HANDSHAKE') {
+            console.log(`🤝 Handshake recibido de ${packet.senderPin}`);
+            
+            let contact = await getContactByPin(packet.senderPin);
+            if (!contact) {
+                contact = { pin: packet.senderPin, alias: packet.senderPin };
+            }
+            // Guardar la llave pública entrante
+            contact.publicKey = packet.publicKey;
+            await saveContact(contact); // Tu DB ahora almacena la llave para futuros mensajes
 
-        await saveMessage(localRecord);
+            // Si es un handshake inicial, respondemos con el nuestro (ACK)
+            if (!packet.isAck) {
+                await sendP2P(packet.senderPin, {
+                    type: 'HANDSHAKE',
+                    senderPin: myIdentity.pinFormatted || myIdentity.pin,
+                    publicKey: myIdentity.publicKey,
+                    isAck: true // Evita un bucle infinito
+                });
+            }
+            return; // Terminamos aquí, un handshake no es un mensaje de chat
+        }
 
-        // Notificar a la interfaz de usuario para actualizar la lista y la ventana activa
-        window.dispatchEvent(new CustomEvent('chat-updated', { 
-            detail: { senderPin: messageData.senderPin } 
-        }));
+        // 💬 CASO 2: Procesar un mensaje de chat normal
+        if (packet.type === 'chat_message') {
+            const contact = await getContactByPin(packet.senderPin);
+
+            if (!contact || !contact.publicKey) {
+                console.warn('⚠️ Mensaje cifrado recibido pero no tenemos la llave pública del remitente. Ignorando.');
+                return;
+            }
+
+            // 🔐 LÓGICA E2EE: Derivar la misma llave secreta usada por el remitente
+            const myPrivateKey = await importPrivateKeyJWK(myIdentity.privateKey);
+            const senderPublicKey = await importPublicKeyJWK(contact.publicKey);
+            const sharedAESKey = await deriveSharedAESKey(myPrivateKey, senderPublicKey);
+
+            // Descifrar con la llave compartida en lugar del PIN
+            const decryptedJson = await decryptMessage(packet.payload, sharedAESKey);
+            const messageData = JSON.parse(decryptedJson);
+
+            // Estructura de guardado local inalterada
+            const localRecord = {
+                id: messageData.id,
+                senderPin: messageData.senderPin,
+                recipientPin: messageData.recipientPin,
+                content: messageData.content,
+                timestamp: messageData.timestamp,
+                isOutgoing: false,
+                status: 'received'
+            };
+
+            await saveMessage(localRecord);
+
+            // Notificar a la interfaz de usuario para actualizar la lista y la ventana activa
+            window.dispatchEvent(new CustomEvent('chat-updated', { 
+                detail: { senderPin: messageData.senderPin } 
+            }));
+        }
     } catch (err) {
-        console.error('❌ Error al descifrar el mensaje recibido:', err);
+        console.error('❌ Error procesando mensaje entrante (posible fallo de descifrado):', err);
     }
 }
