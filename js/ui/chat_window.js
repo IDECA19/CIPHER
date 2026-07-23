@@ -8,6 +8,8 @@ let activeChatPin = null;
 
 /**
  * Abre y carga la conversación con un contacto
+ * @param {string} pin - El PIN del contacto
+ * @param {string} name - El nombre o alias del contacto
  */
 export async function openChatWindow(pin, name) {
     activeChatPin = pin;
@@ -19,7 +21,6 @@ export async function openChatWindow(pin, name) {
 
     if (emptyArea) emptyArea.classList.add('hidden');
     if (windowArea) windowArea.classList.remove('hidden');
-
     if (nameEl) nameEl.textContent = name || pin;
     if (pinEl) pinEl.textContent = pin;
 
@@ -29,6 +30,7 @@ export async function openChatWindow(pin, name) {
 
 /**
  * Carga y renderiza los mensajes en la ventana activa
+ * @param {string} pin - El PIN del contacto
  */
 async function loadMessages(pin) {
     const container = document.getElementById('chat-messages');
@@ -39,14 +41,16 @@ async function loadMessages(pin) {
 
     messages.forEach(msg => {
         const msgDiv = document.createElement('div');
-        msgDiv.className = `message ${msg.isOutgoing ? 'message--outgoing' : 'message--incoming'}`;
+        
+        // CORRECCIÓN: Se agregaron las comillas invertidas (`) para el template literal
+        msgDiv.className = `message ${msg.isOutgoing ? 'sent' : 'received'}`;
 
         const textDiv = document.createElement('div');
         textDiv.className = 'message__text';
         textDiv.textContent = msg.content;
 
         const timeDiv = document.createElement('div');
-        timeDiv.className = 'message__time';
+        timeDiv.className = 'message__meta';
         timeDiv.textContent = formatTime(msg.timestamp);
 
         msgDiv.appendChild(textDiv);
@@ -54,6 +58,7 @@ async function loadMessages(pin) {
         container.appendChild(msgDiv);
     });
 
+    // Desplazar el scroll hacia el último mensaje
     container.scrollTop = container.scrollHeight;
 }
 
