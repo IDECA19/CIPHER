@@ -1,14 +1,22 @@
-// js/core/crypto.js - Cifrado AES-GCM con Web Crypto API
+// js/core/crypto.js - Núcleo Criptográfico (E2EE + Identidad)
 
-function stringToArrayBuffer(str) {
-    return new TextEncoder().encode(str);
+// --- Conversiones de Formato ---
+
+export function bufferToHex(buffer) {
+    return Array.from(new Uint8Array(buffer))
+        .map(b => b.toString(16).padStart(2, '0'))
+        .join('');
 }
 
-function arrayBufferToString(buffer) {
-    return new TextDecoder().decode(buffer);
+export function hexToBuffer(hexString) {
+    const bytes = new Uint8Array(Math.ceil(hexString.length / 2));
+    for (let i = 0; i < bytes.length; i++) {
+        bytes[i] = parseInt(hexString.substr(i * 2, 2), 16);
+    }
+    return bytes.buffer;
 }
 
-function bufferToBase64(buffer) {
+export function bufferToBase64(buffer) {
     const bytes = new Uint8Array(buffer);
     let binary = '';
     for (let i = 0; i < bytes.byteLength; i++) {
@@ -17,13 +25,23 @@ function bufferToBase64(buffer) {
     return window.btoa(binary);
 }
 
-function base64ToBuffer(base64) {
+export function base64ToBuffer(base64) {
     const binaryString = window.atob(base64);
     const bytes = new Uint8Array(binaryString.length);
     for (let i = 0; i < binaryString.length; i++) {
         bytes[i] = binaryString.charCodeAt(i);
     }
     return bytes.buffer;
+}
+
+// --- Derivación y Cifrado ---
+
+export async function hashPin(pin) {
+    const cleanPin = pin.replace(/-/g, '').toLowerCase();
+    const encoder = new TextEncoder();
+    const data = encoder.encode(cleanPin);
+    const hashBuffer = await window.crypto.subtle.digest('SHA-256', data);
+    return bufferToHex(hashBuffer);
 }
 
 async function deriveSymmetricKey(secretPin) {
@@ -52,14 +70,11 @@ async function deriveSymmetricKey(secretPin) {
     );
 }
 
-/**
- * Cifra un texto o JSON utilizando AES-GCM
- */
 export async function encryptMessage(text, recipientPin) {
     try {
         const key = await deriveSymmetricKey(recipientPin);
         const iv = window.crypto.getRandomValues(new Uint8Array(12));
-        const encodedData = stringToArrayBuffer(text);
+        const encodedData = new TextEncoder().encode(text);
 
         const encryptedBuffer = await window.crypto.subtle.encrypt(
             { name: 'AES-GCM', iv: iv },
@@ -77,9 +92,6 @@ export async function encryptMessage(text, recipientPin) {
     }
 }
 
-/**
- * Descifra un paquete recibido usando la clave derivada del PIN emisor
- */
 export async function decryptMessage(encryptedPacket, senderPin) {
     try {
         let parsedPacket;
@@ -103,7 +115,7 @@ export async function decryptMessage(encryptedPacket, senderPin) {
             cipherBuffer
         );
 
-        return arrayBufferToString(decryptedBuffer);
+        return new TextDecoder().decode(decryptedBuffer);
     } catch (error) {
         console.error('❌ Error al descifrar mensaje:', error);
         throw new Error('Error al descifrar el mensaje entrante.');
