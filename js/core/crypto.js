@@ -44,8 +44,13 @@ export async function hashPin(pin) {
     return bufferToHex(hashBuffer);
 }
 
+// Normalización garantizada de clave de derivación
 async function deriveSymmetricKey(secretPin) {
-    const cleanPin = secretPin.replace(/-/g, '').toLowerCase();
+    if (!secretPin || typeof secretPin !== 'string') {
+        throw new Error('PIN inválido para derivación de clave');
+    }
+    // Remueve todo caracter no alfanumérico y convierte a minúsculas
+    const cleanPin = secretPin.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
     const enc = new TextEncoder();
     
     const keyMaterial = await window.crypto.subtle.importKey(
