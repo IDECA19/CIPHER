@@ -10,6 +10,10 @@ let db = null;
  */
 export async function initDatabase() {
     return new Promise((resolve, reject) => {
+        if (db) {
+            return resolve(db);
+        }
+
         const request = indexedDB.open(STORAGE_CONFIG.dbName, STORAGE_CONFIG.dbVersion);
         
         request.onerror = () => {
@@ -40,6 +44,7 @@ export async function initDatabase() {
                     keyPath: "pin" 
                 });
                 contactsStore.createIndex("alias", "alias", { unique: false });
+                contactsStore.createIndex("cleanPin", "cleanPin", { unique: false });
             }
             
             if (!database.objectStoreNames.contains(stores.chats)) {
@@ -55,6 +60,8 @@ export async function initDatabase() {
                     keyPath: "id" 
                 });
                 messagesStore.createIndex("chatId", "chatId", { unique: false });
+                messagesStore.createIndex("senderPin", "senderPin", { unique: false });
+                messagesStore.createIndex("recipientPin", "recipientPin", { unique: false });
                 messagesStore.createIndex("timestamp", "timestamp", { unique: false });
             }
             
@@ -63,8 +70,9 @@ export async function initDatabase() {
                     keyPath: "id" 
                 });
             }
+
             if (!database.objectStoreNames.contains('files')) {
-            database.createObjectStore('files', { keyPath: 'id' });
+                database.createObjectStore('files', { keyPath: 'id' });
             }
             
             console.log("📦 Almacenes de IndexedDB creados/verificados");
@@ -72,15 +80,10 @@ export async function initDatabase() {
     });
 }
 
-/**
- * Guarda un objeto en un almacén de IndexedDB
- * @param {string} storeName - Nombre del almacén
- * @param {Object} data - Datos a guardar
- * @returns {Promise<any>} Resultado de la operación
- */
+// --- MÉTODOS GENÉRICOS ---
+
 export async function saveToStore(storeName, data) {
-    if (!db) throw new Error("Base de datos no inicializada");
-    
+    if (!db) await initDatabase();
     return new Promise((resolve, reject) => {
         const transaction = db.transaction([storeName], "readwrite");
         const store = transaction.objectStore(storeName);
@@ -91,15 +94,8 @@ export async function saveToStore(storeName, data) {
     });
 }
 
-/**
- * Obtiene un objeto por su clave primaria
- * @param {string} storeName - Nombre del almacén
- * @param {string|number} key - Clave primaria
- * @returns {Promise<Object|null>} Objeto encontrado o null
- */
 export async function getFromStore(storeName, key) {
-    if (!db) throw new Error("Base de datos no inicializada");
-    
+    if (!db) await initDatabase();
     return new Promise((resolve, reject) => {
         const transaction = db.transaction([storeName], "readonly");
         const store = transaction.objectStore(storeName);
@@ -110,14 +106,8 @@ export async function getFromStore(storeName, key) {
     });
 }
 
-/**
- * Obtiene todos los objetos de un almacén
- * @param {string} storeName - Nombre del almacén
- * @returns {Promise<Array>} Array de objetos
- */
 export async function getAllFromStore(storeName) {
-    if (!db) throw new Error("Base de datos no inicializada");
-    
+    if (!db) await initDatabase();
     return new Promise((resolve, reject) => {
         const transaction = db.transaction([storeName], "readonly");
         const store = transaction.objectStore(storeName);
@@ -128,15 +118,8 @@ export async function getAllFromStore(storeName) {
     });
 }
 
-/**
- * Elimina un objeto por su clave primaria
- * @param {string} storeName - Nombre del almacén
- * @param {string|number} key - Clave primaria
- * @returns {Promise<void>}
- */
 export async function deleteFromStore(storeName, key) {
-    if (!db) throw new Error("Base de datos no inicializada");
-    
+    if (!db) await initDatabase();
     return new Promise((resolve, reject) => {
         const transaction = db.transaction([storeName], "readwrite");
         const store = transaction.objectStore(storeName);
@@ -147,16 +130,8 @@ export async function deleteFromStore(storeName, key) {
     });
 }
 
-/**
- * Busca objetos por un índice específico
- * @param {string} storeName - Nombre del almacén
- * @param {string} indexName - Nombre del índice
- * @param {any} value - Valor a buscar
- * @returns {Promise<Array>} Objetos encontrados
- */
 export async function getByIndex(storeName, indexName, value) {
-    if (!db) throw new Error("Base de datos no inicializada");
-    
+    if (!db) await initDatabase();
     return new Promise((resolve, reject) => {
         const transaction = db.transaction([storeName], "readonly");
         const store = transaction.objectStore(storeName);
@@ -168,39 +143,96 @@ export async function getByIndex(storeName, indexName, value) {
     });
 }
 
-/**
- * Obtiene la identidad del usuario (debería haber solo una)
- * @returns {Promise<Object|null>} Identidad o null
- */
+// --- GESTIÓN DE IDENTIDAD ---
+
 export async function getIdentity() {
     const identities = await getAllFromStore(STORAGE_CONFIG.stores.identity);
     return identities.length > 0 ? identities[0] : null;
 }
 
-/**
- * Guarda la identidad del usuario
- * @param {Object} identity - Objeto de identidad
- * @returns {Promise<void>}
- */
 export async function saveIdentity(identity) {
-    // Asegurar que tiene un ID fijo
     identity.id = "current_identity";
     await saveToStore(STORAGE_CONFIG.stores.identity, identity);
 }
 
-/**
- * Limpia toda la base de datos (para reinstalación)
- * @returns {Promise<void>}
- */
+// --- GESTIÓN DE CONTACTOS (EXPORTACIONES ESPECÍFICAS) ---
+
+export async function saveContact(contact) {
+    return await saveToStore(STORAGE_CONFIG.stores.contacts, contact);
+}
+
+export async function getAllContacts() {
+    return await getAllFromStore(STORAGE_CONFIG.stores.contacts);
+}
+
+export async function getContactByPin(pin) {
+    return await getFromStore(STORAGE_CONFIG.stores.contacts, pin);
+}
+
+export async function deleteContact(pin) {
+    return await deleteFromStore(STORAGE_CONFIG.stores.contacts, pin);
+}
+
+// --- GESTIÓN DE MENSAJES (EXPORTACIONES ESPECÍFICAS) ---
+
+export async function saveMessage(message) {
+    return await saveToStore(STORAGE_CONFIG.stores.messages, message);
+}
+
+export async function getMessagesByChat(chatPin) {
+    const allMessages = await getAllFromStore(STORAGE_CONFIG.stores.messages);
+    const cleanTarget = chatPin.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+
+    const filtered = allMessages.filter(msg => {
+        const senderClean = (msg.senderPin || '').replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+        const recipientClean = (msg.recipientPin || '').replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+        return senderClean === cleanTarget || recipientClean === cleanTarget;
+    });
+
+    filtered.sort((a, b) => a.timestamp - b.timestamp);
+    return filtered;
+}
+
+export async function markMessagesAsRead(chatPin) {
+    if (!db) await initDatabase();
+    return new Promise((resolve, reject) => {
+        const storeName = STORAGE_CONFIG.stores.messages;
+        const transaction = db.transaction([storeName], "readwrite");
+        const store = transaction.objectStore(storeName);
+        const request = store.getAll();
+
+        request.onsuccess = () => {
+            const allMessages = request.result || [];
+            const cleanTarget = chatPin.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+
+            allMessages.forEach(msg => {
+                const senderClean = (msg.senderPin || '').replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+                if (senderClean === cleanTarget && msg.status !== 'read') {
+                    msg.status = 'read';
+                    store.put(msg);
+                }
+            });
+
+            resolve(true);
+        };
+
+        request.onerror = () => reject(request.error);
+    });
+}
+
+// --- MANTENIMIENTO ---
+
 export async function clearDatabase() {
-    if (!db) throw new Error("Base de datos no inicializada");
+    if (!db) await initDatabase();
     
     const stores = Object.values(STORAGE_CONFIG.stores);
     const transaction = db.transaction(stores, "readwrite");
     
     return new Promise((resolve, reject) => {
         stores.forEach(storeName => {
-            transaction.objectStore(storeName).clear();
+            if (db.objectStoreNames.contains(storeName)) {
+                transaction.objectStore(storeName).clear();
+            }
         });
         
         transaction.oncomplete = () => resolve();
