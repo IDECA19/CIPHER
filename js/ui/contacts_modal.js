@@ -1,6 +1,7 @@
 // js/ui/contacts_modal.js - Modal visual para mostrar la lista de contactos
 
-import { getAllContacts } from '../services/contacts.js';
+// ✅ CORRECCIÓN 1: Importamos getContactsList en lugar de getAllContacts
+import { getContactsList } from '../services/contacts.js';
 import { formatPin, getInitials } from '../utils/formatter.js';
 import { DEVELOPER_PIN } from '../config.js';
 
@@ -60,7 +61,9 @@ function createContactsModal() {
  */
 async function loadContactsList() {
     const contactsList = document.getElementById('contacts-list');
-    const contacts = await getAllContacts();
+    
+    // ✅ CORRECCIÓN 2: Usamos la función correcta expuesta por el servicio
+    const contacts = await getContactsList();
     
     if (contacts.length === 0) {
         contactsList.innerHTML = `
@@ -79,9 +82,17 @@ async function loadContactsList() {
         if (!a.isDeveloper && b.isDeveloper) return 1;
         return a.alias.localeCompare(b.alias);
     });
+
+    // ✅ SEGURIDAD: Función auxiliar para sanitizar el HTML y evitar ataques XSS
+    const escapeHTML = (str) => {
+        return str ? str.replace(/[&<>'"]/g, tag => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
+        }[tag] || tag)) : '';
+    };
     
     contactsList.innerHTML = contacts.map(contact => {
-        const initials = getInitials(contact.alias);
+        const safeAlias = escapeHTML(contact.alias); // Escapamos el nombre del contacto
+        const initials = getInitials(contact.alias); // getInitials no necesita escape (devuelve 2 letras)
         const formattedPin = formatPin(contact.pin);
         const developerBadge = contact.isDeveloper ? '<span class="badge badge-success">Dev</span>' : '';
         const addedDate = new Date(contact.addedAt).toLocaleDateString('es-ES');
@@ -91,14 +102,14 @@ async function loadContactsList() {
                 <div class="contact-item__avatar">${initials}</div>
                 <div class="contact-item__info">
                     <div class="contact-item__header">
-                        <span class="contact-item__name">${contact.alias}</span>
+                        <span class="contact-item__name">${safeAlias}</span>
                         ${developerBadge}
                     </div>
                     <div class="contact-item__pin">${formattedPin}</div>
                     <div class="contact-item__date">Agregado: ${addedDate}</div>
                 </div>
                 <div class="contact-item__actions">
-                    <button class="btn-icon" data-action="chat" data-pin="${contact.pin}" data-alias="${contact.alias}" title="Abrir chat">💬</button>
+                    <button class="btn-icon" data-action="chat" data-pin="${contact.pin}" data-alias="${safeAlias}" title="Abrir chat">💬</button>
                     ${!contact.isDeveloper ? `<button class="btn-icon btn-icon--danger" data-action="delete" data-pin="${contact.pin}" title="Eliminar contacto">🗑️</button>` : ''}
                 </div>
             </div>
